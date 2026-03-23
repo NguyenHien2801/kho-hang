@@ -26,8 +26,9 @@ export default function ScanClient() {
 
   async function startScanner() {
     if (typeof window === 'undefined') return
-    // @ts-expect-error html5-qrcode has no types
-    const { Html5Qrcode } = await import('html5-qrcode')
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { Html5Qrcode } = await import('html5-qrcode') as any
     const scanner = new Html5Qrcode('qr-reader')
     html5QrRef.current = scanner
     setScanning(true)
