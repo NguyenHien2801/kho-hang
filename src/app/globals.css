@@ -33,3 +33,11 @@
     @apply w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent;
   }
 }
+/* globals.css */
+@keyframes slide-in {
+  from { transform: translateX(-100%) }
+  to   { transform: translateX(0) }
+}
+.animate-slide-in {
+  animation: slide-in 0.22s cubic-bezier(0.34, 1.2, 0.64, 1);
+}
