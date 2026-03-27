@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Package, ScanLine, TrendingUp,
-  Bell, Settings, ChevronRight, Menu, X, LogOut, User
+  Bell, Settings, ChevronRight, Menu, X, LogOut, LogIn, User
 } from 'lucide-react'
 import clsx from 'clsx'
 import { supabase } from '@/lib/supabase'
@@ -18,10 +18,10 @@ const nav = [
 ]
 
 export default function Sidebar() {
-  const path     = usePathname()
-  const router   = useRouter()
-  const [open,   setOpen]  = useState(false)
-  const [user,   setUser]  = useState<{ email?: string } | null>(null)
+  const path      = usePathname()
+  const router    = useRouter()
+  const [open,    setOpen]   = useState(false)
+  const [user,    setUser]   = useState<{ email?: string } | null>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -32,7 +32,6 @@ export default function Sidebar() {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  // Đóng drawer khi đổi trang
   useEffect(() => { setOpen(false) }, [path])
 
   async function handleLogout() {
@@ -54,7 +53,6 @@ export default function Sidebar() {
             <p className="text-gray-400 text-xs">Thông Minh</p>
           </div>
         </div>
-        {/* Nút đóng — chỉ hiện trên mobile */}
         <button
           onClick={() => setOpen(false)}
           className="md:hidden text-gray-400 hover:text-white p-1 rounded"
@@ -87,9 +85,10 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Footer — user info + logout */}
+      {/* Footer */}
       <div className="px-3 py-4 border-t border-gray-700 space-y-1">
-        {/* User info */}
+
+        {/* User info — chỉ hiện khi đã đăng nhập */}
         {user && (
           <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gray-800 mb-2">
             <div className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center flex-shrink-0">
@@ -112,15 +111,25 @@ export default function Sidebar() {
           Cài đặt
         </Link>
 
-        {/* Logout */}
-        <button
-          onClick={handleLogout}
-          disabled={loading}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-all"
-        >
-          <LogOut size={18} />
-          {loading ? 'Đang thoát...' : 'Đăng xuất'}
-        </button>
+        {/* Đăng nhập / Đăng xuất tùy trạng thái */}
+        {user ? (
+          <button
+            onClick={handleLogout}
+            disabled={loading}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-all disabled:opacity-50"
+          >
+            <LogOut size={18} />
+            {loading ? 'Đang thoát...' : 'Đăng xuất'}
+          </button>
+        ) : (
+          <Link
+            href="/login"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-green-400 hover:bg-green-900/30 hover:text-green-300 transition-all"
+          >
+            <LogIn size={18} />
+            Đăng nhập
+          </Link>
+        )}
 
         <p className="text-gray-600 text-xs text-center mt-2">v1.0.0</p>
       </div>
@@ -129,7 +138,7 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* ── MOBILE: Hamburger button ── */}
+      {/* MOBILE: Hamburger */}
       <button
         onClick={() => setOpen(true)}
         className="md:hidden fixed top-4 left-4 z-50 w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center text-white shadow-lg border border-gray-700"
@@ -137,22 +146,20 @@ export default function Sidebar() {
         <Menu size={20} />
       </button>
 
-      {/* ── MOBILE: Overlay + Drawer ── */}
+      {/* MOBILE: Overlay + Drawer */}
       {open && (
         <div className="md:hidden fixed inset-0 z-40 flex">
-          {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={() => setOpen(false)}
           />
-          {/* Drawer trượt từ trái */}
           <div className="relative z-50 h-full animate-slide-in">
             <SidebarContent />
           </div>
         </div>
       )}
 
-      {/* ── DESKTOP: Sidebar tĩnh ── */}
+      {/* DESKTOP: Sidebar tĩnh */}
       <div className="hidden md:flex h-screen sticky top-0">
         <SidebarContent />
       </div>

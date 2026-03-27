@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Product } from '@/types'
 import { computePrediction } from '@/lib/prediction'
@@ -86,6 +87,7 @@ function buildRankings(preds: PredictionResult[], products: Product[]) {
 }
 
 export default function DashboardClient() {
+  const router = useRouter()
   const [products,   setProducts]   = useState<Product[]>([])
   const [loading,    setLoading]    = useState(true)
   const [lastUpdate, setLastUpdate] = useState(new Date())
@@ -101,18 +103,37 @@ export default function DashboardClient() {
 
   async function load() {
     setLoading(true)
+
+    // ── Kiểm tra đã login chưa, chưa thì về /login ──
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      router.push('/login')
+      return
+    }
+
+    // ── Lấy products của user hiện tại (RLS tự lọc theo user_id) ──
     const { data: prods } = await supabase
-      .from('products').select('*').eq('is_active', true).order('name')
+      .from('products')
+      .select('*')
+      .eq('is_active', true)
+      .order('name')
+
     if (!prods) { setLoading(false); return }
     setProducts(prods)
+
+    // ── Lấy daily_sales theo từng product ──
     const preds = await Promise.all(
       prods.map(async (p) => {
         const { data: sales } = await supabase
-          .from('daily_sales').select('*')
-          .eq('product_id', p.id).order('sale_date', { ascending: false }).limit(30)
+          .from('daily_sales')
+          .select('*')
+          .eq('product_id', p.id)
+          .order('sale_date', { ascending: false })
+          .limit(30)
         return computePrediction(p, sales || [])
       })
     )
+
     setAllPreds(preds)
     setCriticals(preds.filter(p => p.status === 'critical'))
     setWarnings(preds.filter(p => p.status === 'warning'))
@@ -178,6 +199,18 @@ export default function DashboardClient() {
     }}>{label}</button>
   )
 
+  // ── Màn hình loading khi chưa xác thực ──
+  if (loading) {
+    return (
+      <div style={{ minHeight:'100vh', background:'#f8fafc', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <div style={{ textAlign:'center' }}>
+          <div style={{ fontSize:36, marginBottom:12 }}>⏳</div>
+          <div style={{ fontSize:16, color:'#64748b' }}>Đang tải dữ liệu...</div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={{ minHeight:'100vh', background:'#f8fafc', fontFamily:'Inter, system-ui, sans-serif' }}>
 
@@ -201,7 +234,6 @@ export default function DashboardClient() {
         .db-rank-tabs { flex-wrap: wrap; gap: 6px; }
         .db-banner-desc { display: none; }
 
-        /* ── Base font scale ── */
         .db-content { font-size: 14px; }
         .db-txt-xs  { font-size: 14px; }
         .db-txt-sm  { font-size: 14px; }
@@ -276,6 +308,18 @@ export default function DashboardClient() {
           </div>
         )}
 
+        {/* ── EMPTY STATE khi chưa có sản phẩm ── */}
+        {products.length === 0 && (
+          <div style={{ textAlign:'center', padding:'60px 20px', background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', marginBottom:20 }}>
+            <div style={{ fontSize:48, marginBottom:12 }}>📦</div>
+            <div style={{ fontSize:18, fontWeight:600, color:'#0f172a', marginBottom:6 }}>Kho hàng trống</div>
+            <div style={{ fontSize:14, color:'#94a3b8', marginBottom:20 }}>Bắt đầu bằng cách thêm sản phẩm đầu tiên vào kho</div>
+            <Link href="/inventory" style={{ display:'inline-block', background:'#16a34a', color:'#fff', padding:'10px 24px', borderRadius:10, textDecoration:'none', fontWeight:600, fontSize:14 }}>
+              + Thêm sản phẩm
+            </Link>
+          </div>
+        )}
+
         {/* ── 4 KPI CARDS ── */}
         <div className="db-grid-4" style={{ marginBottom:20 }}>
           {[
@@ -287,7 +331,7 @@ export default function DashboardClient() {
             <div key={i} className="db-card" title={k.desc} style={{ background:k.bg, border:`1px solid ${k.border}`, borderRadius:14 }}>
               <div style={{ fontSize:24, marginBottom:8 }}>{k.icon}</div>
               <div className="db-kpi-val" style={{ fontWeight:700, color:k.num, letterSpacing:'-0.02em', lineHeight:1 }}>
-                {loading?'—':k.value.toLocaleString()}<span style={{ fontSize:14, fontWeight:500, marginLeft:4 }}>{k.unit}</span>
+                {k.value.toLocaleString()}<span style={{ fontSize:14, fontWeight:500, marginLeft:4 }}>{k.unit}</span>
               </div>
               <div style={{ fontSize:14, color:'#334155', marginTop:6, fontWeight:600 }}>{k.label}</div>
               <div style={{ fontSize:14, color:'#94a3b8', marginTop:3 }}>{k.desc}</div>
@@ -359,8 +403,7 @@ export default function DashboardClient() {
                 <span style={{ fontSize:14, padding:'3px 10px', borderRadius:20, background:'#fff1f2', color:'#be123c', border:'1px solid #fecdd3', fontWeight:500, flexShrink:0 }}>{criticals.length+warnings.length} sp</span>
               )}
             </div>
-            {loading ? <div style={{ color:'#94a3b8', fontSize:14, padding:'20px 0' }}>Đang tải...</div>
-            : [...criticals,...warnings].length === 0 ? (
+            {[...criticals,...warnings].length === 0 ? (
               <div style={{ textAlign:'center', padding:'32px 0' }}>
                 <div style={{ fontSize:36, marginBottom:8 }}>✅</div>
                 <div style={{ fontSize:14, color:'#16a34a', fontWeight:600 }}>Kho hàng đang ổn định!</div>
@@ -403,7 +446,6 @@ export default function DashboardClient() {
             Ước tính theo tốc độ bán hiện tại · Dùng để lên kế hoạch nhập hàng và chiến lược giá
           </div>
 
-          {/* 4 ô tài chính */}
           <div className="db-grid-finance-4" style={{ marginBottom:16 }}>
             {[
               { label:'Doanh thu tháng', value:`${Math.round(totalRevenue*30/1000).toLocaleString()}K`, unit:'đ', desc:'Tổng doanh thu ước tính 30 ngày', bg:'#f0fdf4', border:'#bbf7d0', num:'#15803d', icon:'📈' },
@@ -414,7 +456,7 @@ export default function DashboardClient() {
               <div key={i} className="db-card" title={k.desc} style={{ background:k.bg, border:`1px solid ${k.border}`, borderRadius:14 }}>
                 <div style={{ fontSize:22, marginBottom:6 }}>{k.icon}</div>
                 <div style={{ fontSize:22, fontWeight:700, color:k.num, letterSpacing:'-0.02em', lineHeight:1 }}>
-                  {loading?'—':k.value}<span style={{ fontSize:14, fontWeight:500, marginLeft:3 }}>{k.unit}</span>
+                  {k.value}<span style={{ fontSize:14, fontWeight:500, marginLeft:3 }}>{k.unit}</span>
                 </div>
                 <div style={{ fontSize:14, color:'#334155', marginTop:4, fontWeight:600 }}>{k.label}</div>
                 <div style={{ fontSize:14, color:'#94a3b8', marginTop:2 }}>{k.desc}</div>
@@ -422,10 +464,7 @@ export default function DashboardClient() {
             ))}
           </div>
 
-          {/* Biểu đồ tháng/quý + thứ trong tuần */}
           <div className="db-grid-chart-2" style={{ marginBottom:16 }}>
-
-            {/* Biểu đồ tháng/quý */}
             <div style={{ background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'18px' }}>
               <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:6, gap:8, flexWrap:'wrap' }}>
                 <div>
@@ -473,7 +512,6 @@ export default function DashboardClient() {
               </div>
             </div>
 
-            {/* Biểu đồ thứ trong tuần */}
             <div style={{ background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'18px' }}>
               <div style={{ marginBottom:6 }}>
                 <div style={{ fontSize:14, fontWeight:600, color:'#0f172a' }}>📆 Doanh thu theo thứ trong tuần</div>
@@ -504,7 +542,6 @@ export default function DashboardClient() {
             </div>
           </div>
 
-          {/* Bảng xếp hạng sản phẩm */}
           <div style={{ background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'18px' }}>
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:14, fontWeight:600, color:'#0f172a', marginBottom:4 }}>🏆 Bảng xếp hạng sản phẩm</div>
@@ -515,55 +552,45 @@ export default function DashboardClient() {
                 {tabBtn(rankTab==='slow',   '🐢 Bán chậm',  ()=>setRankTab('slow'))}
               </div>
             </div>
-
-            {loading ? (
-              <div style={{ color:'#94a3b8', fontSize:14 }}>Đang tải...</div>
-            ) : (
-              <>
-                <div style={{ padding:'8px 12px', borderRadius:10, marginBottom:12, fontSize:14,
-                  background: rankTab==='slow' ? '#fff1f2' : '#f0fdf4',
-                  color:      rankTab==='slow' ? '#be123c' : '#15803d',
-                  border:     `1px solid ${rankTab==='slow' ? '#fecdd3' : '#bbf7d0'}`,
-                }}>
-                  {rankTab==='qty'     && '📦 Top bán nhiều nhất — ưu tiên nhập đủ hàng'}
-                  {rankTab==='revenue' && '💵 Top doanh thu cao — tập trung khuyến mãi'}
-                  {rankTab==='slow'    && '🐢 Bán chậm — xem xét giảm giá hoặc ngừng nhập'}
-                </div>
-
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {(rankTab==='qty' ? rankings.topQty : rankTab==='revenue' ? rankings.topRevenue : rankings.slow).map((p,i) => {
-                    const medals  = ['🥇','🥈','🥉','4️⃣','5️⃣']
-                    const isWarn  = rankTab==='slow'
-                    const mainVal = rankTab==='qty'
-                      ? `${p.avg_daily_sales.toFixed(1)} sp/ng`
-                      : rankTab==='revenue'
-                      ? `${Math.round(p.revenue/1000).toLocaleString()}K/th`
-                      : `${p.avg_daily_sales.toFixed(1)} sp/ng`
-                    return (
-                      <div key={p.product_id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:12, background:'#f8fafc', border:'1px solid #f1f5f9' }}>
-                        <span style={{ fontSize:20, flexShrink:0, width:24, textAlign:'center' }}>{medals[i]}</span>
-                        <ProductImage barcode={p.barcode} category={p.category} name={p.product_name} size={40}/>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:14, fontWeight:600, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.product_name}</div>
-                          <div style={{ fontSize:14, color:'#94a3b8', marginTop:1 }}>{p.category}</div>
-                        </div>
-                        <div style={{ textAlign:'right', flexShrink:0 }}>
-                          <div style={{ fontSize:14, fontWeight:700, color: isWarn?'#be123c':'#15803d' }}>{mainVal}</div>
-                          {rankTab==='revenue' && (
-                            <div style={{ fontSize:14, color:'#94a3b8' }}>
-                              Lãi: {Math.round(p.profit/1000).toLocaleString()}K/th
-                            </div>
-                          )}
-                          {rankTab==='slow' && (
-                            <div style={{ fontSize:14, color:'#be123c' }}>⚠️ Xả hàng</div>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </>
-            )}
+            <div style={{ padding:'8px 12px', borderRadius:10, marginBottom:12, fontSize:14,
+              background: rankTab==='slow' ? '#fff1f2' : '#f0fdf4',
+              color:      rankTab==='slow' ? '#be123c' : '#15803d',
+              border:     `1px solid ${rankTab==='slow' ? '#fecdd3' : '#bbf7d0'}`,
+            }}>
+              {rankTab==='qty'     && '📦 Top bán nhiều nhất — ưu tiên nhập đủ hàng'}
+              {rankTab==='revenue' && '💵 Top doanh thu cao — tập trung khuyến mãi'}
+              {rankTab==='slow'    && '🐢 Bán chậm — xem xét giảm giá hoặc ngừng nhập'}
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {(rankTab==='qty' ? rankings.topQty : rankTab==='revenue' ? rankings.topRevenue : rankings.slow).map((p,i) => {
+                const medals  = ['🥇','🥈','🥉','4️⃣','5️⃣']
+                const isWarn  = rankTab==='slow'
+                const mainVal = rankTab==='qty'
+                  ? `${p.avg_daily_sales.toFixed(1)} sp/ng`
+                  : rankTab==='revenue'
+                  ? `${Math.round(p.revenue/1000).toLocaleString()}K/th`
+                  : `${p.avg_daily_sales.toFixed(1)} sp/ng`
+                return (
+                  <div key={p.product_id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:12, background:'#f8fafc', border:'1px solid #f1f5f9' }}>
+                    <span style={{ fontSize:20, flexShrink:0, width:24, textAlign:'center' }}>{medals[i]}</span>
+                    <ProductImage barcode={p.barcode} category={p.category} name={p.product_name} size={40}/>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:14, fontWeight:600, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.product_name}</div>
+                      <div style={{ fontSize:14, color:'#94a3b8', marginTop:1 }}>{p.category}</div>
+                    </div>
+                    <div style={{ textAlign:'right', flexShrink:0 }}>
+                      <div style={{ fontSize:14, fontWeight:700, color: isWarn?'#be123c':'#15803d' }}>{mainVal}</div>
+                      {rankTab==='revenue' && (
+                        <div style={{ fontSize:14, color:'#94a3b8' }}>Lãi: {Math.round(p.profit/1000).toLocaleString()}K/th</div>
+                      )}
+                      {rankTab==='slow' && (
+                        <div style={{ fontSize:14, color:'#be123c' }}>⚠️ Xả hàng</div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
 
@@ -576,7 +603,7 @@ export default function DashboardClient() {
               <svg width="90" height="90" viewBox="0 0 100 100" style={{ flexShrink:0 }}>
                 <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" strokeWidth="8"/>
                 <circle cx="50" cy="50" r="42" fill="none" stroke={healthScore>=80?'#16a34a':healthScore>=60?'#f59e0b':'#ef4444'} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(healthScore/100)*264} 264`} transform="rotate(-90 50 50)"/>
-                <text x="50" y="44" textAnchor="middle" fontSize="22" fontWeight="700" fill="#0f172a" fontFamily="Inter,sans-serif">{loading?'—':healthScore}</text>
+                <text x="50" y="44" textAnchor="middle" fontSize="22" fontWeight="700" fill="#0f172a" fontFamily="Inter,sans-serif">{healthScore}</text>
                 <text x="50" y="60" textAnchor="middle" fontSize="11" fill="#94a3b8" fontFamily="Inter,sans-serif">/ 100 điểm</text>
               </svg>
               <div style={{ flex:1, minWidth:160 }}>
@@ -590,7 +617,7 @@ export default function DashboardClient() {
                       <div style={{ fontSize:14, color:'#475569', fontWeight:500 }}>{r.label}</div>
                       <div style={{ fontSize:14, color:'#94a3b8' }}>{r.desc}</div>
                     </div>
-                    <span style={{ fontSize:20, fontWeight:700, color:r.color }}>{loading?'—':r.val}</span>
+                    <span style={{ fontSize:20, fontWeight:700, color:r.color }}>{r.val}</span>
                   </div>
                 ))}
               </div>
@@ -630,8 +657,7 @@ export default function DashboardClient() {
             <Link href="/predict" style={{ fontSize:14, color:'#16a34a', textDecoration:'none', fontWeight:500, flexShrink:0 }}>Xem đầy đủ →</Link>
           </div>
           <div className="db-grid-top4" style={{ marginTop:14 }}>
-            {loading ? [1,2,3,4].map(i => <div key={i} style={{ height:140, borderRadius:12, background:'#f8fafc', border:'1px solid #e2e8f0' }}/>)
-            : topSelling.map((p,i) => {
+            {topSelling.map((p,i) => {
               const prod     = products.find(x => x.id === p.product_id)
               const revenue  = Math.round(p.avg_daily_sales * (prod?.sell_price||0))
               const maxSales = topSelling[0]?.avg_daily_sales || 1
