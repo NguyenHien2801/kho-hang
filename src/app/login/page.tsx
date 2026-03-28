@@ -42,7 +42,7 @@ export default function LoginPage() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400;1,700&family=Geist:wght@300;400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,800;1,700&family=Geist:wght@300;400;500;600;700&display=swap');
 
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -56,7 +56,6 @@ export default function LoginPage() {
           --g200: #bbf7d0;
           --g100: #dcfce7;
           --g50:  #f0fdf4;
-          --n950: #0a0a0a;
           --n900: #171717;
           --n800: #262626;
           --n700: #404040;
@@ -70,49 +69,46 @@ export default function LoginPage() {
           --white: #ffffff;
         }
 
+        /* ── ROOT ── */
         .login-root {
           min-height: 100vh;
+          min-height: 100dvh; /* mobile safe */
           display: flex;
           font-family: 'Geist', sans-serif;
           background: var(--white);
           position: relative;
-          overflow: hidden;
+          overflow-x: hidden;
         }
 
-        /* ── Decorative background ── */
+        /* ── BG DECORATION ── */
         .bg-wrap {
           position: fixed; inset: 0;
           pointer-events: none; z-index: 0; overflow: hidden;
         }
-        .bg-blob {
-          position: absolute; border-radius: 50%; filter: blur(80px);
-        }
+        .bg-blob { position: absolute; border-radius: 50%; filter: blur(72px); }
         .b1 {
-          width: 640px; height: 640px;
-          background: radial-gradient(circle, rgba(34,197,94,0.09) 0%, transparent 70%);
-          top: -220px; left: -160px;
+          width: 480px; height: 480px;
+          background: radial-gradient(circle, rgba(34,197,94,.09) 0%, transparent 70%);
+          top: -180px; left: -140px;
         }
         .b2 {
-          width: 420px; height: 420px;
-          background: radial-gradient(circle, rgba(187,247,208,0.45) 0%, transparent 70%);
-          bottom: -140px; left: 180px;
-        }
-        .b3 {
-          width: 280px; height: 280px;
-          background: radial-gradient(circle, rgba(74,222,128,0.07) 0%, transparent 70%);
-          top: 55%; right: 6%;
+          width: 360px; height: 360px;
+          background: radial-gradient(circle, rgba(187,247,208,.42) 0%, transparent 70%);
+          bottom: -120px; left: 140px;
         }
         .bg-dots {
-          position: fixed; inset: 0;
-          pointer-events: none; z-index: 0;
-          background-image: radial-gradient(circle, rgba(0,0,0,0.05) 1px, transparent 1px);
+          position: fixed; inset: 0; pointer-events: none; z-index: 0;
+          background-image: radial-gradient(circle, rgba(0,0,0,.048) 1px, transparent 1px);
           background-size: 22px 22px;
-          mask-image: radial-gradient(ellipse 65% 65% at 28% 38%, black 0%, transparent 100%);
+          mask-image: radial-gradient(ellipse 60% 60% at 25% 35%, black 0%, transparent 100%);
         }
 
-        /* ── LEFT PANEL ── */
+        /* ══════════════════════════════════
+           LEFT PANEL — hidden on mobile
+        ══════════════════════════════════ */
         .lp {
-          display: none; flex: 1;
+          display: none;
+          flex: 1;
           flex-direction: column;
           justify-content: space-between;
           padding: 52px 56px;
@@ -123,7 +119,7 @@ export default function LoginPage() {
         .lp-logo {
           display: flex; align-items: center; gap: 13px;
           opacity: 0;
-          animation: fu 0.7s 0.05s cubic-bezier(.16,1,.3,1) forwards;
+          animation: fu .7s .05s cubic-bezier(.16,1,.3,1) forwards;
         }
         .lp-mark {
           width: 44px; height: 44px;
@@ -138,21 +134,14 @@ export default function LoginPage() {
           font-size: 17px; font-weight: 700;
           color: var(--n900); letter-spacing: -.2px;
         }
-        .lp-brand-sub {
-          font-size: 11.5px; color: var(--n400);
-          margin-top: 1px; font-weight: 400; letter-spacing: .3px;
-        }
+        .lp-brand-sub { font-size: 11.5px; color: var(--n400); margin-top: 1px; font-weight: 400; }
 
-        .lp-hero {
-          opacity: 0;
-          animation: fu 0.8s 0.2s cubic-bezier(.16,1,.3,1) forwards;
-        }
+        .lp-hero { opacity: 0; animation: fu .8s .2s cubic-bezier(.16,1,.3,1) forwards; }
         .lp-pill {
           display: inline-flex; align-items: center; gap: 8px;
           background: var(--g50); border: 1px solid var(--g200);
           border-radius: 100px; padding: 6px 14px 6px 8px;
-          font-size: 12px; color: var(--g700);
-          font-weight: 500; margin-bottom: 28px; letter-spacing: .2px;
+          font-size: 12px; color: var(--g700); font-weight: 500; margin-bottom: 28px;
         }
         .pill-ring {
           width: 22px; height: 22px; background: var(--g100);
@@ -167,143 +156,147 @@ export default function LoginPage() {
           0%,100% { box-shadow: 0 0 0 0 rgba(22,163,74,.35); }
           60%      { box-shadow: 0 0 0 6px rgba(22,163,74,0); }
         }
-
         .lp-title {
           font-family: 'Playfair Display', serif;
-          font-size: clamp(38px, 4vw, 56px);
-          font-weight: 800;
-          color: var(--n900);
-          line-height: 1.1; letter-spacing: -1px;
-          margin-bottom: 20px;
+          font-size: clamp(36px, 3.8vw, 54px);
+          font-weight: 800; color: var(--n900);
+          line-height: 1.1; letter-spacing: -1px; margin-bottom: 20px;
         }
-        .lp-title em {
-          font-style: italic; color: var(--g700);
-        }
-        .lp-desc {
-          font-size: 15px; color: var(--n500);
-          line-height: 1.8; max-width: 360px; font-weight: 300;
-        }
+        .lp-title em { font-style: italic; color: var(--g700); }
+        .lp-desc { font-size: 15px; color: var(--n500); line-height: 1.8; max-width: 360px; font-weight: 300; }
 
         .feat-list {
           display: flex; flex-direction: column; gap: 12px;
           margin-top: 34px; opacity: 0;
-          animation: fu 0.8s 0.35s cubic-bezier(.16,1,.3,1) forwards;
+          animation: fu .8s .35s cubic-bezier(.16,1,.3,1) forwards;
         }
-        .feat-item {
-          display: flex; align-items: center; gap: 13px;
-          font-size: 14px; color: var(--n600); font-weight: 400;
-        }
+        .feat-item { display: flex; align-items: center; gap: 13px; font-size: 14px; color: var(--n600); }
         .feat-icon {
-          width: 32px; height: 32px;
-          background: var(--g50); border: 1px solid var(--g100);
+          width: 32px; height: 32px; background: var(--g50); border: 1px solid var(--g100);
           border-radius: 9px; display: flex; align-items: center; justify-content: center;
           color: var(--g600); flex-shrink: 0;
         }
 
         .lp-stats {
           display: flex; gap: 14px; opacity: 0;
-          animation: fu 0.8s 0.5s cubic-bezier(.16,1,.3,1) forwards;
+          animation: fu .8s .5s cubic-bezier(.16,1,.3,1) forwards;
         }
         .sc {
-          flex: 1; background: var(--white);
-          border: 1.5px solid var(--n200);
-          border-radius: 14px; padding: 18px 18px;
+          flex: 1; background: var(--white); border: 1.5px solid var(--n200);
+          border-radius: 14px; padding: 18px;
           box-shadow: 0 1px 4px rgba(0,0,0,.05);
-          transition: box-shadow .2s, border-color .2s, transform .2s;
-          cursor: default;
+          transition: box-shadow .2s, border-color .2s, transform .2s; cursor: default;
         }
-        .sc:hover {
-          border-color: var(--g200);
-          box-shadow: 0 6px 22px rgba(22,163,74,.1);
-          transform: translateY(-2px);
-        }
+        .sc:hover { border-color: var(--g200); box-shadow: 0 6px 22px rgba(22,163,74,.1); transform: translateY(-2px); }
         .sc-num {
           font-family: 'Playfair Display', serif;
-          font-size: 25px; font-weight: 800;
-          color: var(--n900); letter-spacing: -.5px; line-height: 1;
+          font-size: 24px; font-weight: 800; color: var(--n900); letter-spacing: -.5px; line-height: 1;
         }
         .sc-num span { color: var(--g600); }
-        .sc-lbl {
-          font-size: 11.5px; color: var(--n400);
-          margin-top: 5px; font-weight: 400; line-height: 1.4;
-        }
+        .sc-lbl { font-size: 11px; color: var(--n400); margin-top: 5px; line-height: 1.4; }
 
         /* ── SEPARATOR ── */
         .sep {
           display: none; width: 1px; flex-shrink: 0;
           align-self: stretch; margin: 60px 0;
-          background: linear-gradient(to bottom,
-            transparent 0%, var(--n200) 15%, var(--g200) 50%, var(--n200) 85%, transparent 100%
-          );
+          background: linear-gradient(to bottom, transparent 0%, var(--n200) 15%, var(--g200) 50%, var(--n200) 85%, transparent 100%);
           position: relative; z-index: 1;
         }
         @media (min-width: 960px) { .sep { display: block; } }
 
-        /* ── RIGHT PANEL ── */
+        /* ══════════════════════════════════
+           RIGHT PANEL — full width mobile
+        ══════════════════════════════════ */
         .rp {
           display: flex; align-items: center; justify-content: center;
-          padding: 40px 28px;
+          /* Mobile: full width, vertically centered with safe padding */
+          width: 100%;
+          min-height: 100vh;
+          min-height: 100dvh;
+          padding: 24px 20px;
           position: relative; z-index: 1;
-          width: 100%; background: var(--white);
+          background: var(--white);
         }
-        @media (min-width: 960px) { .rp { width: 476px; flex-shrink: 0; } }
+        @media (min-width: 960px) {
+          .rp {
+            width: 476px; flex-shrink: 0;
+            min-height: unset;
+            padding: 40px 36px;
+          }
+        }
 
+        /* ── MOBILE TOP BAR (logo, only visible < 960px) ── */
+        .mobile-logo {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 28px;
+        }
+        @media (min-width: 960px) { .mobile-logo { display: none; } }
+        .mobile-mark {
+          width: 38px; height: 38px;
+          background: linear-gradient(140deg, var(--g800), var(--g500));
+          border-radius: 11px;
+          display: flex; align-items: center; justify-content: center;
+          box-shadow: 0 4px 14px rgba(22,163,74,.22);
+          flex-shrink: 0;
+        }
+        .mobile-brand {
+          font-family: 'Playfair Display', serif;
+          font-size: 15px; font-weight: 700; color: var(--n900);
+        }
+        .mobile-brand-sub { font-size: 10.5px; color: var(--n400); margin-top: 1px; }
+
+        /* ── FORM WRAP ── */
         .form-wrap {
-          width: 100%; max-width: 396px;
+          width: 100%;
+          max-width: 400px;
           opacity: 0;
-          animation: fu 0.8s 0.12s cubic-bezier(.16,1,.3,1) forwards;
+          animation: fu .8s .12s cubic-bezier(.16,1,.3,1) forwards;
         }
 
-        .hdr { margin-bottom: 30px; }
+        /* Header */
+        .hdr { margin-bottom: 26px; }
         .hdr-eye {
           font-size: 11px; font-weight: 600; letter-spacing: 2px;
-          text-transform: uppercase; color: var(--g600); margin-bottom: 10px;
+          text-transform: uppercase; color: var(--g600); margin-bottom: 8px;
         }
         .hdr-title {
           font-family: 'Playfair Display', serif;
-          font-size: 30px; font-weight: 800;
-          color: var(--n900); letter-spacing: -.5px;
-          line-height: 1.15; margin-bottom: 7px;
+          /* Responsive: smaller on mobile */
+          font-size: clamp(24px, 6vw, 30px);
+          font-weight: 800; color: var(--n900);
+          letter-spacing: -.5px; line-height: 1.15; margin-bottom: 6px;
         }
-        .hdr-sub {
-          font-size: 14px; color: var(--n400);
-          font-weight: 300; line-height: 1.6;
-        }
+        .hdr-sub { font-size: 14px; color: var(--n400); font-weight: 300; line-height: 1.6; }
 
         /* Google button */
         .gbtn {
-          width: 100%; display: flex; align-items: center;
-          justify-content: center; gap: 10px;
-          padding: 12px 18px; border-radius: 13px;
-          border: 1.5px solid var(--n200); background: var(--white);
+          width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
+          /* Taller tap target on mobile */
+          padding: 13px 18px;
+          border-radius: 13px; border: 1.5px solid var(--n200); background: var(--white);
           color: var(--n700); font-size: 14px; font-weight: 500;
           cursor: pointer; transition: all .18s ease;
-          font-family: 'Geist', sans-serif; margin-bottom: 20px;
+          font-family: 'Geist', sans-serif; margin-bottom: 18px;
           box-shadow: 0 1px 3px rgba(0,0,0,.05);
-          letter-spacing: .1px;
+          /* Prevent tap highlight on mobile */
+          -webkit-tap-highlight-color: transparent;
         }
-        .gbtn:hover {
-          border-color: var(--n300);
-          box-shadow: 0 4px 14px rgba(0,0,0,.07);
-          background: var(--n50);
-        }
+        .gbtn:hover { border-color: var(--n300); box-shadow: 0 4px 14px rgba(0,0,0,.07); background: var(--n50); }
+        .gbtn:active { background: var(--n100); }
         .gbtn:disabled { opacity: .4; cursor: not-allowed; }
 
         /* Divider */
-        .div {
-          display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
-        }
+        .div { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
         .div-line { flex: 1; height: 1px; background: var(--n100); }
-        .div span {
-          font-size: 11.5px; color: var(--n400); font-weight: 400;
-          letter-spacing: .3px; white-space: nowrap;
-        }
+        .div span { font-size: 11.5px; color: var(--n400); letter-spacing: .3px; white-space: nowrap; }
 
         /* Fields */
-        .field { margin-bottom: 15px; }
+        .field { margin-bottom: 14px; }
         .field label {
-          display: block; font-size: 11.5px; font-weight: 600;
-          color: var(--n700); margin-bottom: 7px;
+          display: block; font-size: 11px; font-weight: 600;
+          color: var(--n700); margin-bottom: 6px;
           letter-spacing: .6px; text-transform: uppercase;
         }
         .fi { position: relative; }
@@ -316,10 +309,17 @@ export default function LoginPage() {
         .field input {
           width: 100%; background: var(--n50);
           border: 1.5px solid var(--n200); border-radius: 10px;
-          padding: 12px 42px; font-size: 14.5px;
+          /* Bigger touch target */
+          padding: 13px 42px;
+          /* Prevent zoom on iOS (font-size must be >= 16px) */
+          font-size: 16px;
           color: var(--n900); font-family: 'Geist', sans-serif;
           outline: none; transition: all .2s ease;
-          caret-color: var(--g600); font-weight: 400;
+          caret-color: var(--g600);
+          -webkit-tap-highlight-color: transparent;
+          /* iOS rounded corners fix */
+          -webkit-appearance: none;
+          appearance: none;
         }
         .field input::placeholder { color: var(--n400); font-weight: 300; }
         .field input:focus {
@@ -327,43 +327,40 @@ export default function LoginPage() {
           box-shadow: 0 0 0 4px rgba(34,197,94,.09);
         }
         .eye {
-          position: absolute; right: 14px; top: 50%;
-          transform: translateY(-50%);
+          position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
           background: none; border: none; cursor: pointer;
           color: var(--n400); display: flex; align-items: center;
-          transition: color .15s; padding: 0;
+          transition: color .15s; padding: 4px;
+          -webkit-tap-highlight-color: transparent;
         }
         .eye:hover { color: var(--n700); }
 
         /* Forgot */
-        .forgot {
-          display: flex; justify-content: flex-end;
-          margin-top: -7px; margin-bottom: 18px;
-        }
+        .forgot { display: flex; justify-content: flex-end; margin-top: -6px; margin-bottom: 16px; }
         .forgot a {
-          font-size: 12.5px; color: var(--g700); font-weight: 500;
+          /* Bigger tap target */
+          padding: 4px 0;
+          font-size: 13px; color: var(--g700); font-weight: 500;
           text-decoration: none; transition: color .15s;
         }
         .forgot a:hover { color: var(--g600); }
 
         /* Error */
         .err {
-          background: #fff5f5; border: 1.5px solid #fed7d7;
-          border-radius: 10px; padding: 11px 14px;
-          font-size: 13.5px; color: #c53030; margin-bottom: 13px;
+          background: #fff5f5; border: 1.5px solid #fed7d7; border-radius: 10px;
+          padding: 11px 14px; font-size: 13.5px; color: #c53030; margin-bottom: 13px;
           display: flex; align-items: center; gap: 10px;
           animation: shake .35s cubic-bezier(.36,.07,.19,.97);
         }
         @keyframes shake {
           0%,100% { transform: translateX(0); }
-          20%,60% { transform: translateX(-4px); }
-          40%,80% { transform: translateX(4px); }
+          20%,60%  { transform: translateX(-4px); }
+          40%,80%  { transform: translateX(4px); }
         }
         .err-ico {
-          width: 18px; height: 18px; background: #fed7d7;
-          border-radius: 50%; display: flex; align-items: center;
-          justify-content: center; font-size: 11px;
-          font-weight: 800; color: #c53030; flex-shrink: 0;
+          width: 18px; height: 18px; background: #fed7d7; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 11px; font-weight: 800; color: #c53030; flex-shrink: 0;
         }
 
         /* Submit */
@@ -371,48 +368,41 @@ export default function LoginPage() {
           width: 100%;
           background: linear-gradient(140deg, var(--g900) 0%, var(--g600) 100%);
           color: white; border: none; border-radius: 13px;
-          padding: 13px 20px; font-size: 14.5px; font-weight: 600;
+          /* Bigger tap target */
+          padding: 15px 20px;
+          font-size: 15px; font-weight: 600;
           cursor: pointer; font-family: 'Geist', sans-serif;
           display: flex; align-items: center; justify-content: center; gap: 9px;
           box-shadow: 0 4px 18px rgba(22,163,74,.28), 0 1px 0 rgba(255,255,255,.12) inset;
           transition: all .22s cubic-bezier(.16,1,.3,1);
           letter-spacing: .15px; position: relative; overflow: hidden;
+          -webkit-tap-highlight-color: transparent;
         }
         .sbtn::after {
           content: ''; position: absolute; inset: 0;
           background: linear-gradient(135deg, rgba(255,255,255,.13) 0%, transparent 55%);
         }
-        .sbtn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 28px rgba(22,163,74,.36), 0 1px 0 rgba(255,255,255,.15) inset;
-        }
-        .sbtn:active { transform: translateY(0); }
+        .sbtn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(22,163,74,.36), 0 1px 0 rgba(255,255,255,.15) inset; }
+        .sbtn:active { transform: scale(0.98); }
         .sbtn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
         .sbtn > * { position: relative; z-index: 1; }
         .arr { transition: transform .18s ease; }
         .sbtn:hover .arr { transform: translateX(4px); }
 
         /* Register */
-        .reg {
-          text-align: center; margin-top: 20px;
-          font-size: 13.5px; color: var(--n400);
-        }
-        .reg a {
-          color: var(--g700); font-weight: 600;
-          text-decoration: none; transition: color .15s;
-        }
+        .reg { text-align: center; margin-top: 18px; font-size: 13.5px; color: var(--n400); }
+        .reg a { color: var(--g700); font-weight: 600; text-decoration: none; transition: color .15s; }
         .reg a:hover { color: var(--g600); }
 
-        /* Trust row */
+        /* Trust badges */
         .trust {
           display: flex; align-items: center; justify-content: center;
-          gap: 20px; margin-top: 26px; padding-top: 20px;
-          border-top: 1px solid var(--n100);
+          /* Wrap on very small screens */
+          flex-wrap: wrap;
+          gap: 12px 18px;
+          margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--n100);
         }
-        .ti {
-          display: flex; align-items: center; gap: 5px;
-          font-size: 11px; color: var(--n400); font-weight: 400;
-        }
+        .ti { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--n400); }
         .td { width: 5px; height: 5px; background: var(--g400); border-radius: 50%; flex-shrink: 0; }
 
         /* Animations */
@@ -422,17 +412,24 @@ export default function LoginPage() {
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         .spin { animation: spin .75s linear infinite; }
+
+        /* ── Extra small devices (< 360px) ── */
+        @media (max-width: 359px) {
+          .rp { padding: 20px 16px; }
+          .hdr-title { font-size: 22px; }
+          .field input { padding: 11px 38px; font-size: 16px; }
+        }
       `}</style>
 
       {/* BG */}
       <div className="bg-wrap">
-        <div className="bg-blob b1" /><div className="bg-blob b2" /><div className="bg-blob b3" />
+        <div className="bg-blob b1" /><div className="bg-blob b2" />
       </div>
       <div className="bg-dots" />
 
       <div className="login-root">
 
-        {/* LEFT */}
+        {/* ══ LEFT PANEL (desktop only) ══ */}
         <div className="lp">
           <div className="lp-logo">
             <div className="lp-mark"><Package size={20} color="white" /></div>
@@ -449,8 +446,8 @@ export default function LoginPage() {
             <div className="feat-list">
               {[
                 [<TrendingUp size={14} />, 'Báo cáo & phân tích thời gian thực'],
-                [<Zap size={14} />, 'Tự động hoá quy trình nhập xuất kho'],
-                [<Shield size={14} />, 'Bảo mật dữ liệu chuẩn doanh nghiệp ISO'],
+                [<Zap size={14} />,        'Tự động hoá quy trình nhập xuất kho'],
+                [<Shield size={14} />,     'Bảo mật dữ liệu chuẩn doanh nghiệp ISO'],
               ].map(([icon, text], i) => (
                 <div key={i} className="feat-item">
                   <span className="feat-icon">{icon}</span>{text}
@@ -460,7 +457,7 @@ export default function LoginPage() {
           </div>
 
           <div className="lp-stats">
-            {[['99.9','%','Uptime đảm bảo'],['2.4k','+','Doanh nghiệp tin dùng'],['50','ms','Độ trễ trung bình']].map(([n,u,l],i) => (
+            {[['99.9','%','Uptime đảm bảo'],['2.4k','+','Doanh nghiệp tin dùng'],['50','ms','Độ trễ TB']].map(([n,u,l],i) => (
               <div key={i} className="sc">
                 <div className="sc-num"><span>{n}</span>{u}</div>
                 <div className="sc-lbl">{l}</div>
@@ -471,9 +468,19 @@ export default function LoginPage() {
 
         <div className="sep" />
 
-        {/* RIGHT */}
+        {/* ══ RIGHT PANEL (form) ══ */}
         <div className="rp">
           <div className="form-wrap">
+
+            {/* Mobile-only logo */}
+            <div className="mobile-logo">
+              <div className="mobile-mark"><Package size={18} color="white" /></div>
+              <div>
+                <div className="mobile-brand">KhoHàng Pro</div>
+                <div className="mobile-brand-sub">Warehouse Management System</div>
+              </div>
+            </div>
+
             <div className="hdr">
               <div className="hdr-eye">Đăng nhập</div>
               <h2 className="hdr-title">Chào mừng trở lại 👋</h2>
@@ -499,16 +506,29 @@ export default function LoginPage() {
                 <label>Email</label>
                 <div className="fi">
                   <span className="fi-ico"><Mail size={14} /></span>
-                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="ban@congty.com" autoComplete="email" />
+                  <input
+                    type="email" required value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="ban@congty.com"
+                    autoComplete="email"
+                    inputMode="email"
+                  />
                 </div>
               </div>
+
               <div className="field">
                 <label>Mật khẩu</label>
                 <div className="fi">
                   <span className="fi-ico"><Lock size={14} /></span>
-                  <input type={showPw ? 'text' : 'password'} required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••••" style={{ paddingRight: '42px' }} autoComplete="current-password" />
-                  <button type="button" className="eye" onClick={() => setShowPw(v => !v)}>
-                    {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                  <input
+                    type={showPw ? 'text' : 'password'} required value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••••"
+                    style={{ paddingRight: '48px' }}
+                    autoComplete="current-password"
+                  />
+                  <button type="button" className="eye" onClick={() => setShowPw(v => !v)} aria-label="Hiện/ẩn mật khẩu">
+                    {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
               </div>
@@ -516,20 +536,23 @@ export default function LoginPage() {
               <div className="forgot"><Link href="/forgot-password">Quên mật khẩu?</Link></div>
 
               {error && (
-                <div className="err">
+                <div className="err" role="alert">
                   <span className="err-ico">!</span>{error}
                 </div>
               )}
 
               <button type="submit" className="sbtn" disabled={loading}>
                 {loading
-                  ? <Loader2 size={15} className="spin" />
-                  : <><span>Đăng nhập</span><ArrowRight size={14} className="arr" /></>
+                  ? <Loader2 size={16} className="spin" />
+                  : <><span>Đăng nhập</span><ArrowRight size={15} className="arr" /></>
                 }
               </button>
             </form>
 
-            <p className="reg">Chưa có tài khoản?{' '}<Link href="/register">Đăng ký miễn phí →</Link></p>
+            <p className="reg">
+              Chưa có tài khoản?{' '}
+              <Link href="/register">Đăng ký miễn phí →</Link>
+            </p>
 
             <div className="trust">
               {['SSL bảo mật', 'GDPR compliant', 'ISO 27001'].map((t, i) => (
@@ -538,6 +561,7 @@ export default function LoginPage() {
             </div>
           </div>
         </div>
+
       </div>
     </>
   )
