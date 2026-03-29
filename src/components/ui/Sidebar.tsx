@@ -88,7 +88,7 @@ export default function Sidebar() {
       {/* Footer */}
       <div className="px-3 py-4 border-t border-gray-700 space-y-1">
 
-        {/* User info */}
+        {/* User info — chỉ hiện khi đã đăng nhập */}
         {user && (
           <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gray-800 mb-2">
             <div className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center flex-shrink-0">
@@ -111,6 +111,7 @@ export default function Sidebar() {
           Cài đặt
         </Link>
 
+        {/* Đăng nhập / Đăng xuất tùy trạng thái */}
         {user ? (
           <button
             onClick={handleLogout}
@@ -137,12 +138,15 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* ─────────────────────────────────────────────────────────────────
-          MOBILE: Nút hamburger NẰM TRONG TOPBAR của trang — KHÔNG fixed
-          Dùng custom event để DashboardClient (hoặc layout) trigger mở sidebar
-      ───────────────────────────────────────────────────────────────── */}
+      {/* MOBILE: Hamburger */}
+      <button
+        onClick={() => setOpen(true)}
+        className="md:hidden fixed top-4 left-4 z-50 w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center text-white shadow-lg border border-gray-700"
+      >
+        <Menu size={20} />
+      </button>
 
-      {/* MOBILE: Overlay + Drawer — chỉ render khi open */}
+      {/* MOBILE: Overlay + Drawer */}
       {open && (
         <div className="md:hidden fixed inset-0 z-40 flex">
           <div
@@ -158,59 +162,6 @@ export default function Sidebar() {
       {/* DESKTOP: Sidebar tĩnh */}
       <div className="hidden md:flex h-screen sticky top-0">
         <SidebarContent />
-      </div>
-
-      {/* ── MOBILE TOPBAR — dùng CSS thuần, KHÔNG mix Tailwind + inline display ── */}
-      <style>{`
-        .sidebar-mobile-topbar {
-          display: flex;               /* hiện trên mobile */
-          position: sticky;
-          top: 0;
-          z-index: 30;
-          background: #fff;
-          border-bottom: 1px solid #e2e8f0;
-          align-items: center;
-          gap: 10px;
-          padding-top: env(safe-area-inset-top, 0px);
-          height: calc(56px + env(safe-area-inset-top, 0px));
-          padding-left: 12px;
-          padding-right: 16px;
-        }
-        /* Ẩn trên desktop (≥768px) */
-        @media (min-width: 768px) {
-          .sidebar-mobile-topbar { display: none; }
-        }
-
-        .sidebar-mobile-topbar .mob-menu-btn {
-          width: 38px; height: 38px; border-radius: 10px;
-          background: #111827; border: none; cursor: pointer; flex-shrink: 0;
-          display: flex; align-items: center; justify-content: center;
-        }
-        .sidebar-mobile-topbar .mob-logo-wrap {
-          display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
-        }
-        .sidebar-mobile-topbar .mob-logo-icon {
-          width: 32px; height: 32px; border-radius: 8px; background: #16a34a;
-          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-        }
-        .sidebar-mobile-topbar .mob-logo-text {
-          font-size: 15px; font-weight: 600; color: #0f172a;
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-      `}</style>
-
-      <div className="sidebar-mobile-topbar">
-        <button className="mob-menu-btn" onClick={() => setOpen(true)}>
-          <Menu size={20} color="#fff" />
-        </button>
-        <div className="mob-logo-wrap">
-          <div className="mob-logo-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-              <path d="M3 3h18v4H3zM3 10h8v11H3zM14 10h7v11h-7z"/>
-            </svg>
-          </div>
-          <div className="mob-logo-text">Kho Hàng Thông Minh</div>
-        </div>
       </div>
     </>
   )

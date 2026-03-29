@@ -14,6 +14,7 @@ import {
 } from 'recharts'
 import ProductImage from '@/components/ui/ProductImage'
 
+// ── Tạo dữ liệu 30 ngày cho biểu đồ miền ──────────────────────────────────
 function buildChartData(preds: PredictionResult[]) {
   const today = new Date()
   return Array.from({ length: 30 }, (_, i) => {
@@ -34,6 +35,7 @@ function buildChartData(preds: PredictionResult[]) {
 
 function buildMonthlyData(preds: PredictionResult[], products: Product[]) {
   return Array.from({ length: 12 }, (_, i) => {
+    const month = i + 1
     const seasonFactor = [1.4, 1.1, 0.9, 0.85, 0.9, 1.0, 1.05, 1.1, 0.95, 1.0, 1.15, 1.5][i]
     const baseRevenue  = preds.reduce((sum, p) => {
       const prod = products.find(x => x.id === p.product_id)
@@ -44,7 +46,7 @@ function buildMonthlyData(preds: PredictionResult[], products: Product[]) {
       return sum + p.avg_daily_sales * ((prod?.sell_price || 0) - (prod?.cost_price || 0)) * 30
     }, 0)
     return {
-      month:    `T${i + 1}`,
+      month:    `T${month}`,
       doanhThu: Math.round(baseRevenue  * seasonFactor / 1000),
       loiNhuan: Math.round(baseProfit   * seasonFactor / 1000),
     }
@@ -70,11 +72,11 @@ function buildRankings(preds: PredictionResult[], products: Product[]) {
     const prod = products.find(x => x.id === p.product_id)
     return {
       ...p,
-      revenue:   p.avg_daily_sales * (prod?.sell_price || 0) * 30,
-      profit:    p.avg_daily_sales * ((prod?.sell_price || 0) - (prod?.cost_price || 0)) * 30,
-      sellPrice: prod?.sell_price  || 0,
-      costPrice: prod?.cost_price  || 0,
-      category:  prod?.category    || '',
+      revenue:    p.avg_daily_sales * (prod?.sell_price || 0) * 30,
+      profit:     p.avg_daily_sales * ((prod?.sell_price || 0) - (prod?.cost_price || 0)) * 30,
+      sellPrice:  prod?.sell_price  || 0,
+      costPrice:  prod?.cost_price  || 0,
+      category:   prod?.category    || '',
     }
   })
   return {
@@ -86,35 +88,48 @@ function buildRankings(preds: PredictionResult[], products: Product[]) {
 
 export default function DashboardClient() {
   const router = useRouter()
-  const [products,  setProducts]  = useState<Product[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [lastUpdate,setLastUpdate]= useState(new Date())
-  const [criticals, setCriticals] = useState<PredictionResult[]>([])
-  const [warnings,  setWarnings]  = useState<PredictionResult[]>([])
-  const [allPreds,  setAllPreds]  = useState<PredictionResult[]>([])
-  const [showTip,   setShowTip]   = useState(true)
-  const [chartTab,  setChartTab]  = useState<'bán'|'tồn'>('bán')
-  const [rankTab,   setRankTab]   = useState<'qty'|'revenue'|'slow'>('qty')
-  const [monthView, setMonthView] = useState<'month'|'quarter'>('month')
+  const [products,   setProducts]   = useState<Product[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [lastUpdate, setLastUpdate] = useState(new Date())
+  const [criticals,  setCriticals]  = useState<PredictionResult[]>([])
+  const [warnings,   setWarnings]   = useState<PredictionResult[]>([])
+  const [allPreds,   setAllPreds]   = useState<PredictionResult[]>([])
+  const [showTip,    setShowTip]    = useState(true)
+  const [chartTab,   setChartTab]   = useState<'bán'|'tồn'>('bán')
+  const [rankTab,    setRankTab]    = useState<'qty'|'revenue'|'slow'>('qty')
+  const [monthView,  setMonthView]  = useState<'month'|'quarter'>('month')
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
 
+    // ── Kiểm tra đã login chưa, chưa thì về /login ──
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      router.push('/login')
+      return
+    }
+
+    // ── Lấy products của user hiện tại (RLS tự lọc theo user_id) ──
     const { data: prods } = await supabase
-      .from('products').select('*').eq('is_active', true).order('name')
+      .from('products')
+      .select('*')
+      .eq('is_active', true)
+      .order('name')
 
     if (!prods) { setLoading(false); return }
     setProducts(prods)
 
+    // ── Lấy daily_sales theo từng product ──
     const preds = await Promise.all(
       prods.map(async (p) => {
         const { data: sales } = await supabase
-          .from('daily_sales').select('*').eq('product_id', p.id)
-          .order('sale_date', { ascending: false }).limit(30)
+          .from('daily_sales')
+          .select('*')
+          .eq('product_id', p.id)
+          .order('sale_date', { ascending: false })
+          .limit(30)
         return computePrediction(p, sales || [])
       })
     )
@@ -126,25 +141,25 @@ export default function DashboardClient() {
     setLoading(false)
   }
 
-  const topSelling   = [...allPreds].sort((a,b) => b.avg_daily_sales - a.avg_daily_sales).slice(0,4)
-  const healthScore  = products.length > 0
+  const topSelling    = [...allPreds].sort((a,b) => b.avg_daily_sales - a.avg_daily_sales).slice(0,4)
+  const healthScore   = products.length > 0
     ? Math.round(((products.length - criticals.length - warnings.length) / products.length) * 100)
     : 100
-  const totalRevenue = allPreds.reduce((sum, p) => {
+  const totalRevenue  = allPreds.reduce((sum, p) => {
     const prod = products.find(x => x.id === p.product_id)
     return sum + p.avg_daily_sales * (prod?.sell_price || 0)
   }, 0)
-  const totalProfit  = allPreds.reduce((sum, p) => {
+  const totalProfit   = allPreds.reduce((sum, p) => {
     const prod = products.find(x => x.id === p.product_id)
     return sum + p.avg_daily_sales * ((prod?.sell_price || 0) - (prod?.cost_price || 0))
   }, 0)
-  const totalStock   = products.reduce((sum, p) => sum + p.stock * p.cost_price, 0)
-  const profitMargin = totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0
+  const totalStock    = products.reduce((sum, p) => sum + p.stock * p.cost_price, 0)
+  const profitMargin  = totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0
 
-  const chartData   = buildChartData(allPreds)
-  const monthlyData = buildMonthlyData(allPreds, products)
-  const weekdayData = buildWeekdayData(allPreds, products)
-  const rankings    = buildRankings(allPreds, products)
+  const chartData    = buildChartData(allPreds)
+  const monthlyData  = buildMonthlyData(allPreds, products)
+  const weekdayData  = buildWeekdayData(allPreds, products)
+  const rankings     = buildRankings(allPreds, products)
 
   const quarterData = [
     { quarter:'Q1', doanhThu: monthlyData.slice(0,3).reduce((s,m)=>s+m.doanhThu,0), loiNhuan: monthlyData.slice(0,3).reduce((s,m)=>s+m.loiNhuan,0) },
@@ -184,6 +199,7 @@ export default function DashboardClient() {
     }}>{label}</button>
   )
 
+  // ── Màn hình loading khi chưa xác thực ──
   if (loading) {
     return (
       <div style={{ minHeight:'100vh', background:'#f8fafc', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -198,81 +214,78 @@ export default function DashboardClient() {
   return (
     <div style={{ minHeight:'100vh', background:'#f8fafc', fontFamily:'Inter, system-ui, sans-serif' }}>
 
+      {/* ── RESPONSIVE STYLES ── */}
       <style>{`
         @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 
-        /* ── TOPBAR: ẩn trên mobile vì Sidebar.tsx đã render mobile topbar ── */
-        .db-topbar {
-          display: none;
-        }
-        @media (min-width: 768px) {
-          .db-topbar {
-            display: flex;
-            padding: 0 24px;
-          }
-        }
-        @media (min-width: 1024px) {
-          .db-topbar { padding: 0 32px; }
-        }
-
+        .db-topbar { padding: 0 16px; }
+        .db-topbar-logo-text { display: block; }
+        .db-topbar-actions { gap: 8px; }
         .db-topbar-realtime { display: none; }
+        .db-content { padding: 16px; }
+        .db-grid-4 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+        .db-grid-chart-alert { display: grid; grid-template-columns: 1fr; gap: 16px; }
+        .db-grid-finance-4 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+        .db-grid-chart-2 { display: grid; grid-template-columns: 1fr; gap: 16px; }
+        .db-grid-health-actions { display: grid; grid-template-columns: 1fr; gap: 16px; }
+        .db-grid-top4 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+        .db-card { padding: 16px; }
+        .db-kpi-val { font-size: 24px !important; }
+        .db-rank-tabs { flex-wrap: wrap; gap: 6px; }
+        .db-banner-desc { display: none; }
+
+        .db-content { font-size: 14px; }
+        .db-txt-xs  { font-size: 14px; }
+        .db-txt-sm  { font-size: 14px; }
+        .db-txt-md  { font-size: 14px; }
+        .db-txt-lg  { font-size: 15px; }
+        .db-txt-xl  { font-size: 16px; }
+        .db-txt-2xl { font-size: 18px; }
+
         @media (min-width: 640px) {
           .db-topbar-realtime { display: flex; }
-          .db-banner-desc     { display: inline; }
+          .db-banner-desc { display: inline; }
         }
-
-        /* ── CONTENT padding: trên mobile KHÔNG cần padding-top thêm
-              vì mobile topbar (56px) đã nằm trong Sidebar và sticky rồi ── */
-        .db-content { padding: 16px; }
-        @media (min-width: 768px) { .db-content { padding: 20px 24px; } }
-        @media (min-width: 1024px) { .db-content { padding: 28px 32px; } }
-
-        /* ── GRIDS ── */
-        .db-grid-4            { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
-        .db-grid-chart-alert  { display: grid; grid-template-columns: 1fr; gap: 16px; }
-        .db-grid-finance-4    { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
-        .db-grid-chart-2      { display: grid; grid-template-columns: 1fr; gap: 16px; }
-        .db-grid-health-actions { display: grid; grid-template-columns: 1fr; gap: 16px; }
-        .db-grid-top4         { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
-        .db-card              { padding: 16px; }
-        .db-kpi-val           { font-size: 24px !important; }
-        .db-rank-tabs         { flex-wrap: wrap; gap: 6px; }
-        .db-banner-desc       { display: none; }
 
         @media (min-width: 768px) {
-          .db-grid-4         { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+          .db-topbar { padding: 0 24px; }
+          .db-content { padding: 20px 24px; }
+          .db-grid-4 { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
           .db-grid-finance-4 { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
-          .db-grid-top4      { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+          .db-grid-top4 { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
         }
+
         @media (min-width: 1024px) {
-          .db-grid-4              { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 20px; }
-          .db-grid-chart-alert    { grid-template-columns: 1fr 360px; }
-          .db-grid-finance-4      { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; }
-          .db-grid-chart-2        { grid-template-columns: 1fr 1fr; gap: 16px; }
+          .db-topbar { padding: 0 32px; }
+          .db-content { padding: 28px 32px; }
+          .db-grid-4 { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 20px; }
+          .db-grid-chart-alert { grid-template-columns: 1fr 360px; }
+          .db-grid-finance-4 { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; }
+          .db-grid-chart-2 { grid-template-columns: 1fr 1fr; gap: 16px; }
           .db-grid-health-actions { grid-template-columns: 1fr 380px; }
-          .db-grid-top4           { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; }
-          .db-kpi-val             { font-size: 30px !important; }
+          .db-grid-top4 { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; }
+          .db-kpi-val { font-size: 30px !important; }
         }
       `}</style>
 
-      {/* ── TOPBAR — chỉ hiện trên desktop (≥768px), mobile dùng topbar của Sidebar ── */}
-      <div className="db-topbar" style={{ background:'#fff', borderBottom:'1px solid #e2e8f0', height:64, alignItems:'center', justifyContent:'space-between' }}>
+      {/* ── TOPBAR ── */}
+      <div className="db-topbar" style={{ background:'#fff', borderBottom:'1px solid #e2e8f0', height:64, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ width:38, height:38, borderRadius:10, background:'#16a34a', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M3 3h18v4H3zM3 10h8v11H3zM14 10h7v11h-7z"/></svg>
           </div>
-          <div>
+          <div className="db-topbar-logo-text">
             <div style={{ fontSize:18, fontWeight:600, color:'#0f172a' }}>Kho Hàng Thông Minh</div>
-            <div style={{ fontSize:13, color:'#94a3b8' }}>Cập nhật {formatDistanceToNow(lastUpdate, { locale:vi, addSuffix:true })}</div>
+            <div style={{ fontSize:14, color:'#94a3b8' }}>Cập nhật {formatDistanceToNow(lastUpdate, { locale:vi, addSuffix:true })}</div>
           </div>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <div className="db-topbar-realtime" style={{ alignItems:'center', gap:6, fontSize:13, color:'#16a34a', background:'#f0fdf4', border:'1px solid #bbf7d0', padding:'5px 12px', borderRadius:20 }}>
+        <div className="db-topbar-actions" style={{ display:'flex', alignItems:'center' }}>
+          <div className="db-topbar-realtime" style={{ alignItems:'center', gap:6, fontSize:14, color:'#16a34a', background:'#f0fdf4', border:'1px solid #bbf7d0', padding:'5px 12px', borderRadius:20 }}>
             <span style={{ width:7, height:7, borderRadius:'50%', background:'#16a34a', display:'inline-block' }}/>
             Realtime
           </div>
-          <button onClick={load} disabled={loading} style={{ fontSize:13, padding:'7px 12px', borderRadius:8, background:'#fff', color:'#475569', border:'1px solid #e2e8f0', cursor:'pointer', whiteSpace:'nowrap' }}>↻ Làm mới</button>
-          <Link href="/alerts" style={{ fontSize:13, padding:'7px 14px', borderRadius:8, background:'#16a34a', color:'#fff', textDecoration:'none', fontWeight:500, whiteSpace:'nowrap' }}>🔔 Cảnh báo</Link>
+          <button onClick={load} disabled={loading} style={{ fontSize:14, padding:'7px 12px', borderRadius:8, background:'#fff', color:'#475569', border:'1px solid #e2e8f0', cursor:'pointer', whiteSpace:'nowrap' }}>↻ Làm mới</button>
+          <Link href="/alerts" style={{ fontSize:14, padding:'7px 14px', borderRadius:8, background:'#16a34a', color:'#fff', textDecoration:'none', fontWeight:500, whiteSpace:'nowrap' }}>🔔 Cảnh báo</Link>
         </div>
       </div>
 
@@ -295,7 +308,7 @@ export default function DashboardClient() {
           </div>
         )}
 
-        {/* ── EMPTY STATE ── */}
+        {/* ── EMPTY STATE khi chưa có sản phẩm ── */}
         {products.length === 0 && (
           <div style={{ textAlign:'center', padding:'60px 20px', background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', marginBottom:20 }}>
             <div style={{ fontSize:48, marginBottom:12 }}>📦</div>
@@ -310,10 +323,10 @@ export default function DashboardClient() {
         {/* ── 4 KPI CARDS ── */}
         <div className="db-grid-4" style={{ marginBottom:20 }}>
           {[
-            { label:'Tổng sản phẩm',  value:products.length,              unit:'mặt hàng', desc:'Số mặt hàng đang theo dõi',               bg:'#eff6ff', border:'#bfdbfe', num:'#1d4ed8', icon:'📦' },
-            { label:'Sức khoẻ kho',   value:healthScore,                   unit:'%',        desc:healthScore>=80?'Kho ổn định':'Cần chú ý',  bg:healthScore>=70?'#f0fdf4':'#fffbeb', border:healthScore>=70?'#bbf7d0':'#fde68a', num:healthScore>=70?'#15803d':'#92400e', icon:healthScore>=70?'💚':'⚠️' },
-            { label:'Cần nhập khẩn',  value:criticals.length,              unit:'sản phẩm', desc:'Hết hàng trong vòng 3 ngày',              bg:'#fff1f2', border:'#fecdd3', num:'#be123c', icon:'🚨' },
-            { label:'Doanh thu/ngày', value:Math.round(totalRevenue/1000), unit:'K đ',      desc:'Ước tính theo tốc độ bán hiện tại',       bg:'#faf5ff', border:'#e9d5ff', num:'#7e22ce', icon:'💰' },
+            { label:'Tổng sản phẩm',  value:products.length,              unit:'mặt hàng', desc:'Số mặt hàng đang theo dõi',            bg:'#eff6ff', border:'#bfdbfe', num:'#1d4ed8', icon:'📦' },
+            { label:'Sức khoẻ kho',   value:healthScore,                   unit:'%',        desc:healthScore>=80?'Kho ổn định':'Cần chú ý', bg:healthScore>=70?'#f0fdf4':'#fffbeb', border:healthScore>=70?'#bbf7d0':'#fde68a', num:healthScore>=70?'#15803d':'#92400e', icon:healthScore>=70?'💚':'⚠️' },
+            { label:'Cần nhập khẩn',  value:criticals.length,              unit:'sản phẩm', desc:'Hết hàng trong vòng 3 ngày',           bg:'#fff1f2', border:'#fecdd3', num:'#be123c', icon:'🚨' },
+            { label:'Doanh thu/ngày', value:Math.round(totalRevenue/1000), unit:'K đ',      desc:'Ước tính theo tốc độ bán hiện tại',    bg:'#faf5ff', border:'#e9d5ff', num:'#7e22ce', icon:'💰' },
           ].map((k,i) => (
             <div key={i} className="db-card" title={k.desc} style={{ background:k.bg, border:`1px solid ${k.border}`, borderRadius:14 }}>
               <div style={{ fontSize:24, marginBottom:8 }}>{k.icon}</div>
@@ -321,7 +334,7 @@ export default function DashboardClient() {
                 {k.value.toLocaleString()}<span style={{ fontSize:14, fontWeight:500, marginLeft:4 }}>{k.unit}</span>
               </div>
               <div style={{ fontSize:14, color:'#334155', marginTop:6, fontWeight:600 }}>{k.label}</div>
-              <div style={{ fontSize:13, color:'#94a3b8', marginTop:3 }}>{k.desc}</div>
+              <div style={{ fontSize:14, color:'#94a3b8', marginTop:3 }}>{k.desc}</div>
             </div>
           ))}
         </div>
@@ -331,15 +344,15 @@ export default function DashboardClient() {
           <div style={{ background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'20px' }}>
             <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:6, gap:8, flexWrap:'wrap' }}>
               <div>
-                <div style={{ fontSize:16, fontWeight:600, color:'#0f172a' }}>📊 Xu hướng 30 ngày</div>
-                <div style={{ fontSize:13, color:'#94a3b8', marginTop:2 }}>Theo dõi bán ra và tồn kho</div>
+                <div style={{ fontSize:18, fontWeight:600, color:'#0f172a' }}>📊 Xu hướng 30 ngày</div>
+                <div style={{ fontSize:14, color:'#94a3b8', marginTop:2 }}>Theo dõi bán ra và tồn kho</div>
               </div>
               <div style={{ display:'flex', gap:6, flexShrink:0 }}>
                 {tabBtn(chartTab==='bán','📤 Bán ra',()=>setChartTab('bán'))}
                 {tabBtn(chartTab==='tồn','📦 Tồn kho',()=>setChartTab('tồn'))}
               </div>
             </div>
-            <div style={{ display:'flex', gap:12, marginBottom:12, fontSize:13, color:'#64748b', flexWrap:'wrap' }}>
+            <div style={{ display:'flex', gap:12, marginBottom:12, fontSize:14, color:'#64748b', flexWrap:'wrap' }}>
               {chartTab==='bán' ? (
                 <>
                   <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:10, height:10, borderRadius:2, background:'#16a34a', display:'inline-block' }}/>Bán ra</span>
@@ -357,8 +370,8 @@ export default function DashboardClient() {
                     <linearGradient id="gNhap" x1="0" y1="0" x2="0" y2="1"><stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.15}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
-                  <XAxis dataKey="date" tick={{ fontSize:12, fill:'#94a3b8' }} interval={5}/>
-                  <YAxis tick={{ fontSize:12, fill:'#94a3b8' }} width={32}/>
+                  <XAxis dataKey="date" tick={{ fontSize:14, fill:'#94a3b8' }} interval={5}/>
+                  <YAxis tick={{ fontSize:14, fill:'#94a3b8' }} width={32}/>
                   <Tooltip content={<CustomTooltip/>}/>
                   <Area type="monotone" dataKey="bán"  name="Bán ra"    stroke="#16a34a" strokeWidth={2} fill="url(#gBan)"  dot={false}/>
                   <Area type="monotone" dataKey="nhập" name="Nhập hàng" stroke="#3b82f6" strokeWidth={2} fill="url(#gNhap)" dot={false}/>
@@ -367,14 +380,14 @@ export default function DashboardClient() {
                 <AreaChart data={chartData} margin={{ top:5, right:5, left:-10, bottom:5 }}>
                   <defs><linearGradient id="gTon" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#7e22ce" stopOpacity={0.15}/><stop offset="95%" stopColor="#7e22ce" stopOpacity={0}/></linearGradient></defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
-                  <XAxis dataKey="date" tick={{ fontSize:12, fill:'#94a3b8' }} interval={5}/>
-                  <YAxis tick={{ fontSize:12, fill:'#94a3b8' }} width={32}/>
+                  <XAxis dataKey="date" tick={{ fontSize:14, fill:'#94a3b8' }} interval={5}/>
+                  <YAxis tick={{ fontSize:14, fill:'#94a3b8' }} width={32}/>
                   <Tooltip content={<CustomTooltip/>}/>
                   <Area type="monotone" dataKey="tồnKho" name="Tồn kho" stroke="#7e22ce" strokeWidth={2} fill="url(#gTon)" dot={false}/>
                 </AreaChart>
               )}
             </ResponsiveContainer>
-            <div style={{ marginTop:10, padding:'8px 12px', background:'#f0fdf4', borderRadius:10, fontSize:13, color:'#15803d' }}>
+            <div style={{ marginTop:10, padding:'8px 12px', background:'#f0fdf4', borderRadius:10, fontSize:14, color:'#15803d' }}>
               💡 Đường xanh giảm = bán tốt, cần nhập thêm sớm.
             </div>
           </div>
@@ -383,18 +396,18 @@ export default function DashboardClient() {
           <div style={{ background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'20px' }}>
             <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:6 }}>
               <div>
-                <div style={{ fontSize:16, fontWeight:600, color:'#0f172a' }}>🚨 Cảnh báo tồn kho</div>
-                <div style={{ fontSize:13, color:'#94a3b8', marginTop:2 }}>🔴 Hết trong 3 ngày · 🟡 Hết trong 10 ngày</div>
+                <div style={{ fontSize:18, fontWeight:600, color:'#0f172a' }}>🚨 Cảnh báo tồn kho</div>
+                <div style={{ fontSize:14, color:'#94a3b8', marginTop:2 }}>🔴 Hết trong 3 ngày · 🟡 Hết trong 10 ngày</div>
               </div>
               {(criticals.length+warnings.length) > 0 && (
-                <span style={{ fontSize:13, padding:'3px 10px', borderRadius:20, background:'#fff1f2', color:'#be123c', border:'1px solid #fecdd3', fontWeight:500, flexShrink:0 }}>{criticals.length+warnings.length} sp</span>
+                <span style={{ fontSize:14, padding:'3px 10px', borderRadius:20, background:'#fff1f2', color:'#be123c', border:'1px solid #fecdd3', fontWeight:500, flexShrink:0 }}>{criticals.length+warnings.length} sp</span>
               )}
             </div>
             {[...criticals,...warnings].length === 0 ? (
               <div style={{ textAlign:'center', padding:'32px 0' }}>
                 <div style={{ fontSize:36, marginBottom:8 }}>✅</div>
                 <div style={{ fontSize:14, color:'#16a34a', fontWeight:600 }}>Kho hàng đang ổn định!</div>
-                <div style={{ fontSize:13, color:'#94a3b8', marginTop:4 }}>Không có sản phẩm cần nhập thêm</div>
+                <div style={{ fontSize:14, color:'#94a3b8', marginTop:4 }}>Không có sản phẩm cần nhập thêm</div>
               </div>
             ) : (
               <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:14 }}>
@@ -408,13 +421,13 @@ export default function DashboardClient() {
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
                           <span style={{ fontSize:14, fontWeight:600, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'58%' }}>{p.product_name}</span>
-                          <span style={{ fontSize:13, fontWeight:700, color:isCrit?'#be123c':'#92400e', flexShrink:0 }}>{isCrit?'🔴':'🟡'} {p.predicted_days_left}ng</span>
+                          <span style={{ fontSize:14, fontWeight:700, color:isCrit?'#be123c':'#92400e', flexShrink:0 }}>{isCrit?'🔴':'🟡'} {p.predicted_days_left}ng</span>
                         </div>
-                        <div style={{ fontSize:13, color:'#94a3b8', marginBottom:4 }}>Tồn: {p.current_stock} · Bán {p.avg_daily_sales}/ngày</div>
+                        <div style={{ fontSize:14, color:'#94a3b8', marginBottom:4 }}>Tồn: {p.current_stock} · Bán {p.avg_daily_sales}/ngày</div>
                         <div style={{ height:4, borderRadius:3, background:'#f1f5f9', overflow:'hidden' }}>
                           <div style={{ height:'100%', borderRadius:3, width:`${pct}%`, background:isCrit?'#ef4444':'#f59e0b' }}/>
                         </div>
-                        <div style={{ fontSize:13, color:isCrit?'#be123c':'#92400e', fontWeight:500, marginTop:4 }}>{isCrit?'⚡ Nhập ngay hôm nay!':'📋 Lên kế hoạch tuần này'}</div>
+                        <div style={{ fontSize:14, color:isCrit?'#be123c':'#92400e', fontWeight:500, marginTop:4 }}>{isCrit?'⚡ Nhập ngay hôm nay!':'📋 Lên kế hoạch tuần này'}</div>
                       </div>
                     </div>
                   )
@@ -424,27 +437,29 @@ export default function DashboardClient() {
           </div>
         </div>
 
-        {/* ── THỐNG KÊ TÀI CHÍNH ── */}
+        {/* ══════════════════════════════════════════════
+            💰 THỐNG KÊ TÀI CHÍNH
+        ══════════════════════════════════════════════ */}
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:16, fontWeight:700, color:'#0f172a', marginBottom:4 }}>💰 Thống kê tài chính</div>
-          <div style={{ fontSize:13, color:'#94a3b8', marginBottom:14 }}>
+          <div style={{ fontSize:18, fontWeight:700, color:'#0f172a', marginBottom:4 }}>💰 Thống kê tài chính</div>
+          <div style={{ fontSize:14, color:'#94a3b8', marginBottom:14 }}>
             Ước tính theo tốc độ bán hiện tại · Dùng để lên kế hoạch nhập hàng và chiến lược giá
           </div>
 
           <div className="db-grid-finance-4" style={{ marginBottom:16 }}>
             {[
               { label:'Doanh thu tháng', value:`${Math.round(totalRevenue*30/1000).toLocaleString()}K`, unit:'đ', desc:'Tổng doanh thu ước tính 30 ngày', bg:'#f0fdf4', border:'#bbf7d0', num:'#15803d', icon:'📈' },
-              { label:'Lợi nhuận/tháng', value:`${Math.round(totalProfit*30/1000).toLocaleString()}K`, unit:'đ', desc:`Tỷ lệ lãi: ${profitMargin}%`,        bg:'#eff6ff', border:'#bfdbfe', num:'#1d4ed8', icon:'💵' },
-              { label:'Vốn tồn kho',     value:`${Math.round(totalStock/1000).toLocaleString()}K`,     unit:'đ', desc:'Số tiền đang "chôn" trong kho',     bg:'#fff7ed', border:'#fed7aa', num:'#c2410c', icon:'🏭' },
-              { label:'Tỷ lệ lãi gộp',  value:`${profitMargin}`,                                       unit:'%', desc:'Lãi gộp trung bình toàn kho',       bg:'#faf5ff', border:'#e9d5ff', num:'#7e22ce', icon:'📊' },
+              { label:'Lợi nhuận/tháng', value:`${Math.round(totalProfit*30/1000).toLocaleString()}K`, unit:'đ', desc:`Tỷ lệ lãi: ${profitMargin}%`, bg:'#eff6ff', border:'#bfdbfe', num:'#1d4ed8', icon:'💵' },
+              { label:'Vốn tồn kho',     value:`${Math.round(totalStock/1000).toLocaleString()}K`,     unit:'đ', desc:'Số tiền đang "chôn" trong kho', bg:'#fff7ed', border:'#fed7aa', num:'#c2410c', icon:'🏭' },
+              { label:'Tỷ lệ lãi gộp',  value:`${profitMargin}`,                                       unit:'%', desc:'Lãi gộp trung bình toàn kho', bg:'#faf5ff', border:'#e9d5ff', num:'#7e22ce', icon:'📊' },
             ].map((k,i) => (
               <div key={i} className="db-card" title={k.desc} style={{ background:k.bg, border:`1px solid ${k.border}`, borderRadius:14 }}>
                 <div style={{ fontSize:22, marginBottom:6 }}>{k.icon}</div>
-                <div style={{ fontSize:20, fontWeight:700, color:k.num, letterSpacing:'-0.02em', lineHeight:1 }}>
-                  {k.value}<span style={{ fontSize:13, fontWeight:500, marginLeft:3 }}>{k.unit}</span>
+                <div style={{ fontSize:22, fontWeight:700, color:k.num, letterSpacing:'-0.02em', lineHeight:1 }}>
+                  {k.value}<span style={{ fontSize:14, fontWeight:500, marginLeft:3 }}>{k.unit}</span>
                 </div>
-                <div style={{ fontSize:13, color:'#334155', marginTop:4, fontWeight:600 }}>{k.label}</div>
-                <div style={{ fontSize:12, color:'#94a3b8', marginTop:2 }}>{k.desc}</div>
+                <div style={{ fontSize:14, color:'#334155', marginTop:4, fontWeight:600 }}>{k.label}</div>
+                <div style={{ fontSize:14, color:'#94a3b8', marginTop:2 }}>{k.desc}</div>
               </div>
             ))}
           </div>
@@ -456,7 +471,7 @@ export default function DashboardClient() {
                   <div style={{ fontSize:14, fontWeight:600, color:'#0f172a' }}>
                     📅 {monthView==='month' ? 'Doanh thu theo tháng' : 'Doanh thu theo quý'}
                   </div>
-                  <div style={{ fontSize:12, color:'#94a3b8', marginTop:2 }}>
+                  <div style={{ fontSize:14, color:'#94a3b8', marginTop:2 }}>
                     {monthView==='month'
                       ? `Tốt nhất: ${bestMonth?.month} (${bestMonth?.doanhThu?.toLocaleString()}K đ)`
                       : `Tốt nhất: ${bestQuarter?.quarter} (${bestQuarter?.doanhThu?.toLocaleString()}K đ)`}
@@ -467,15 +482,15 @@ export default function DashboardClient() {
                   {tabBtn(monthView==='quarter','Quý',()=>setMonthView('quarter'))}
                 </div>
               </div>
-              <div style={{ display:'flex', gap:12, marginBottom:10, fontSize:12, color:'#64748b' }}>
+              <div style={{ display:'flex', gap:12, marginBottom:10, fontSize:14, color:'#64748b' }}>
                 <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:2, background:'#16a34a', display:'inline-block' }}/>Doanh thu</span>
                 <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:2, background:'#3b82f6', display:'inline-block' }}/>Lợi nhuận</span>
               </div>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={monthView==='month' ? monthlyData : quarterData} margin={{ top:5, right:5, left:-10, bottom:5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
-                  <XAxis dataKey={monthView==='month'?'month':'quarter'} tick={{ fontSize:12, fill:'#94a3b8' }}/>
-                  <YAxis tick={{ fontSize:12, fill:'#94a3b8' }} width={32}/>
+                  <XAxis dataKey={monthView==='month'?'month':'quarter'} tick={{ fontSize:14, fill:'#94a3b8' }}/>
+                  <YAxis tick={{ fontSize:14, fill:'#94a3b8' }} width={32}/>
                   <Tooltip content={<CustomTooltip/>}/>
                   <Bar dataKey="doanhThu" name="Doanh thu" fill="#16a34a" radius={[4,4,0,0]}>
                     {(monthView==='month' ? monthlyData : quarterData).map((_,i) => {
@@ -492,7 +507,7 @@ export default function DashboardClient() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-              <div style={{ marginTop:8, padding:'7px 10px', background:'#f0fdf4', borderRadius:8, fontSize:12, color:'#15803d' }}>
+              <div style={{ marginTop:8, padding:'7px 10px', background:'#f0fdf4', borderRadius:8, fontSize:14, color:'#15803d' }}>
                 🏆 Cột xanh đậm = {monthView==='month'?'tháng':'quý'} bán chạy nhất.
               </div>
             </div>
@@ -500,19 +515,19 @@ export default function DashboardClient() {
             <div style={{ background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'18px' }}>
               <div style={{ marginBottom:6 }}>
                 <div style={{ fontSize:14, fontWeight:600, color:'#0f172a' }}>📆 Doanh thu theo thứ trong tuần</div>
-                <div style={{ fontSize:12, color:'#94a3b8', marginTop:2 }}>
+                <div style={{ fontSize:14, color:'#94a3b8', marginTop:2 }}>
                   Ngày bán chạy: <strong style={{ color:'#15803d' }}>{bestWeekday?.day}</strong> ({bestWeekday?.doanhThu?.toLocaleString()}K đ)
                 </div>
               </div>
-              <div style={{ display:'flex', gap:12, marginBottom:10, fontSize:12, color:'#64748b' }}>
+              <div style={{ display:'flex', gap:12, marginBottom:10, fontSize:14, color:'#64748b' }}>
                 <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:2, background:'#f59e0b', display:'inline-block' }}/>Cuối tuần</span>
                 <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:2, background:'#93c5fd', display:'inline-block' }}/>Ngày thường</span>
               </div>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={weekdayData} margin={{ top:5, right:5, left:-10, bottom:5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
-                  <XAxis dataKey="day" tick={{ fontSize:12, fill:'#94a3b8' }}/>
-                  <YAxis tick={{ fontSize:12, fill:'#94a3b8' }} width={32}/>
+                  <XAxis dataKey="day" tick={{ fontSize:14, fill:'#94a3b8' }}/>
+                  <YAxis tick={{ fontSize:14, fill:'#94a3b8' }} width={32}/>
                   <Tooltip formatter={(v: number) => [`${v.toLocaleString()}K đ`, 'Doanh thu']} labelFormatter={(l) => `📅 ${l}`}/>
                   <Bar dataKey="doanhThu" name="Doanh thu" radius={[4,4,0,0]}>
                     {weekdayData.map((d,i) => (
@@ -521,24 +536,23 @@ export default function DashboardClient() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-              <div style={{ marginTop:8, padding:'7px 10px', background:'#fffbeb', borderRadius:8, fontSize:12, color:'#92400e' }}>
+              <div style={{ marginTop:8, padding:'7px 10px', background:'#fffbeb', borderRadius:8, fontSize:14, color:'#92400e' }}>
                 💡 Nên chạy khuyến mãi vào Thứ 6 để kéo khách cuối tuần.
               </div>
             </div>
           </div>
 
-          {/* Bảng xếp hạng */}
           <div style={{ background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'18px' }}>
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:14, fontWeight:600, color:'#0f172a', marginBottom:4 }}>🏆 Bảng xếp hạng sản phẩm</div>
-              <div style={{ fontSize:12, color:'#94a3b8', marginBottom:10 }}>Phân tích hiệu quả từng sản phẩm — ra quyết định thông minh hơn</div>
+              <div style={{ fontSize:14, color:'#94a3b8', marginBottom:10 }}>Phân tích hiệu quả từng sản phẩm — ra quyết định thông minh hơn</div>
               <div className="db-rank-tabs" style={{ display:'flex' }}>
                 {tabBtn(rankTab==='qty',    '📦 Bán nhiều', ()=>setRankTab('qty'))}
                 {tabBtn(rankTab==='revenue','💵 Doanh thu', ()=>setRankTab('revenue'))}
                 {tabBtn(rankTab==='slow',   '🐢 Bán chậm',  ()=>setRankTab('slow'))}
               </div>
             </div>
-            <div style={{ padding:'8px 12px', borderRadius:10, marginBottom:12, fontSize:13,
+            <div style={{ padding:'8px 12px', borderRadius:10, marginBottom:12, fontSize:14,
               background: rankTab==='slow' ? '#fff1f2' : '#f0fdf4',
               color:      rankTab==='slow' ? '#be123c' : '#15803d',
               border:     `1px solid ${rankTab==='slow' ? '#fecdd3' : '#bbf7d0'}`,
@@ -562,15 +576,15 @@ export default function DashboardClient() {
                     <ProductImage barcode={p.barcode} category={p.category} name={p.product_name} size={40}/>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:14, fontWeight:600, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.product_name}</div>
-                      <div style={{ fontSize:12, color:'#94a3b8', marginTop:1 }}>{p.category}</div>
+                      <div style={{ fontSize:14, color:'#94a3b8', marginTop:1 }}>{p.category}</div>
                     </div>
                     <div style={{ textAlign:'right', flexShrink:0 }}>
-                      <div style={{ fontSize:13, fontWeight:700, color: isWarn?'#be123c':'#15803d' }}>{mainVal}</div>
+                      <div style={{ fontSize:14, fontWeight:700, color: isWarn?'#be123c':'#15803d' }}>{mainVal}</div>
                       {rankTab==='revenue' && (
-                        <div style={{ fontSize:12, color:'#94a3b8' }}>Lãi: {Math.round(p.profit/1000).toLocaleString()}K/th</div>
+                        <div style={{ fontSize:14, color:'#94a3b8' }}>Lãi: {Math.round(p.profit/1000).toLocaleString()}K/th</div>
                       )}
                       {rankTab==='slow' && (
-                        <div style={{ fontSize:12, color:'#be123c' }}>⚠️ Xả hàng</div>
+                        <div style={{ fontSize:14, color:'#be123c' }}>⚠️ Xả hàng</div>
                       )}
                     </div>
                   </div>
@@ -583,8 +597,8 @@ export default function DashboardClient() {
         {/* ── HEALTH + QUICK ACTIONS ── */}
         <div className="db-grid-health-actions" style={{ gap:20, marginBottom:20, display:'grid' }}>
           <div style={{ background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'20px' }}>
-            <div style={{ fontSize:16, fontWeight:600, color:'#0f172a', marginBottom:4 }}>💚 Sức khoẻ kho hàng</div>
-            <div style={{ fontSize:13, color:'#94a3b8', marginBottom:16 }}>Mục tiêu duy trì trên 80 điểm.</div>
+            <div style={{ fontSize:18, fontWeight:600, color:'#0f172a', marginBottom:4 }}>💚 Sức khoẻ kho hàng</div>
+            <div style={{ fontSize:14, color:'#94a3b8', marginBottom:16 }}>Mục tiêu duy trì trên 80 điểm.</div>
             <div style={{ display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
               <svg width="90" height="90" viewBox="0 0 100 100" style={{ flexShrink:0 }}>
                 <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" strokeWidth="8"/>
@@ -600,8 +614,8 @@ export default function DashboardClient() {
                 ].map(r => (
                   <div key={r.label} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 0', borderBottom:'1px solid #f8fafc' }}>
                     <div>
-                      <div style={{ fontSize:13, color:'#475569', fontWeight:500 }}>{r.label}</div>
-                      <div style={{ fontSize:12, color:'#94a3b8' }}>{r.desc}</div>
+                      <div style={{ fontSize:14, color:'#475569', fontWeight:500 }}>{r.label}</div>
+                      <div style={{ fontSize:14, color:'#94a3b8' }}>{r.desc}</div>
                     </div>
                     <span style={{ fontSize:20, fontWeight:700, color:r.color }}>{r.val}</span>
                   </div>
@@ -611,8 +625,8 @@ export default function DashboardClient() {
           </div>
 
           <div style={{ background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'20px' }}>
-            <div style={{ fontSize:16, fontWeight:600, color:'#0f172a', marginBottom:4 }}>⚡ Thao tác nhanh</div>
-            <div style={{ fontSize:13, color:'#94a3b8', marginBottom:14 }}>Truy cập nhanh các tính năng chính</div>
+            <div style={{ fontSize:18, fontWeight:600, color:'#0f172a', marginBottom:4 }}>⚡ Thao tác nhanh</div>
+            <div style={{ fontSize:14, color:'#94a3b8', marginBottom:14 }}>Truy cập nhanh các tính năng chính</div>
             {[
               { href:'/inventory', emoji:'📋', label:'Bảng kho hàng',  sub:'Thêm, sửa, xoá · Lịch sử giao dịch', bg:'#eff6ff', color:'#1d4ed8' },
               { href:'/scan',      emoji:'📷', label:'Quét mã vạch',   sub:'Camera điện thoại → cập nhật kho ngay', bg:'#f0fdf4', color:'#15803d' },
@@ -624,7 +638,7 @@ export default function DashboardClient() {
                   <span style={{ fontSize:20, flexShrink:0 }}>{a.emoji}</span>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:14, fontWeight:600, color:'#0f172a' }}>{a.label}</div>
-                    <div style={{ fontSize:12, color:'#64748b', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.sub}</div>
+                    <div style={{ fontSize:14, color:'#64748b', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.sub}</div>
                   </div>
                   <span style={{ fontSize:18, color:a.color, flexShrink:0 }}>→</span>
                 </div>
@@ -637,10 +651,10 @@ export default function DashboardClient() {
         <div style={{ background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'20px' }}>
           <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:6, gap:8 }}>
             <div>
-              <div style={{ fontSize:16, fontWeight:600, color:'#0f172a' }}>📈 Top sản phẩm bán chạy</div>
-              <div style={{ fontSize:13, color:'#94a3b8', marginTop:2 }}>Dựa trên dữ liệu 30 ngày</div>
+              <div style={{ fontSize:18, fontWeight:600, color:'#0f172a' }}>📈 Top sản phẩm bán chạy</div>
+              <div style={{ fontSize:14, color:'#94a3b8', marginTop:2 }}>Dựa trên dữ liệu 30 ngày</div>
             </div>
-            <Link href="/predict" style={{ fontSize:13, color:'#16a34a', textDecoration:'none', fontWeight:500, flexShrink:0 }}>Xem đầy đủ →</Link>
+            <Link href="/predict" style={{ fontSize:14, color:'#16a34a', textDecoration:'none', fontWeight:500, flexShrink:0 }}>Xem đầy đủ →</Link>
           </div>
           <div className="db-grid-top4" style={{ marginTop:14 }}>
             {topSelling.map((p,i) => {
@@ -656,26 +670,26 @@ export default function DashboardClient() {
                 <div key={p.product_id} style={{ borderRadius:12, padding:'14px', background:bgs[i], border:`1px solid ${borders[i]}` }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                     <span style={{ fontSize:18 }}>{medals[i]}</span>
-                    <span style={{ fontSize:13, fontWeight:700, color:colors[i], background:'#fff', padding:'2px 7px', borderRadius:20, border:`1px solid ${borders[i]}` }}>{p.avg_daily_sales.toFixed(1)}/ng</span>
+                    <span style={{ fontSize:14, fontWeight:700, color:colors[i], background:'#fff', padding:'2px 7px', borderRadius:20, border:`1px solid ${borders[i]}` }}>{p.avg_daily_sales.toFixed(1)}/ng</span>
                   </div>
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
                     <ProductImage barcode={p.barcode} category={prod?.category} name={p.product_name} size={38}/>
-                    <div style={{ fontSize:13, fontWeight:600, color:'#0f172a', lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{p.product_name}</div>
+                    <div style={{ fontSize:14, fontWeight:600, color:'#0f172a', lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{p.product_name}</div>
                   </div>
                   <div style={{ marginBottom:6 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'#94a3b8', marginBottom:3 }}><span>Tốc độ bán</span><span>{pct}%</span></div>
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:14, color:'#94a3b8', marginBottom:3 }}><span>Tốc độ bán</span><span>{pct}%</span></div>
                     <div style={{ height:4, borderRadius:3, background:'#e2e8f0', overflow:'hidden' }}>
                       <div style={{ height:'100%', borderRadius:3, width:`${pct}%`, background:colors[i] }}/>
                     </div>
                   </div>
-                  <div style={{ fontSize:13, color:'#64748b', fontWeight:500 }}>💵 ~{revenue.toLocaleString('vi-VN')}đ/ng</div>
+                  <div style={{ fontSize:14, color:'#64748b', fontWeight:500 }}>💵 ~{revenue.toLocaleString('vi-VN')}đ/ng</div>
                 </div>
               )
             })}
           </div>
           <div style={{ marginTop:14, padding:'14px 16px', borderRadius:12, background:'#faf5ff', border:'1px solid #e9d5ff' }}>
             <div style={{ fontSize:14, fontWeight:600, color:'#7e22ce', marginBottom:6 }}>🤖 Gợi ý chiến lược từ AI</div>
-            <div style={{ fontSize:13, color:'#6b21a8', lineHeight:1.9 }}>
+            <div style={{ fontSize:14, color:'#6b21a8', lineHeight:1.9 }}>
               • <strong>Nhập hàng ngay:</strong> Ưu tiên sản phẩm vùng đỏ/vàng trước khi hết hàng.<br/>
               • <strong>Đẩy bán chạy:</strong> Khuyến mãi top sản phẩm vào <strong>cuối tuần</strong>.<br/>
               • <strong>Xoay vòng vốn:</strong> Sản phẩm bán chậm → giảm giá hoặc bundle combo.
