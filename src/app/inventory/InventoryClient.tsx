@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Product } from '@/types'
 import { toast } from 'sonner'
-import { Plus, Search, Pencil, Trash2, PackagePlus, X, Package, RefreshCw, Printer } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, PackagePlus, X, Package, RefreshCw, Printer, ImagePlus } from 'lucide-react'
 
 /* ─── Barcode renderer dùng JsBarcode ─── */
 function BarcodeRenderer({ value }: { value: string }) {
@@ -12,11 +12,7 @@ function BarcodeRenderer({ value }: { value: string }) {
     if (ref.current && value) {
       import('jsbarcode').then(({ default: JsBarcode }) => {
         JsBarcode(ref.current, value, {
-          format: 'CODE128',
-          width: 2,
-          height: 60,
-          displayValue: false,
-          margin: 0,
+          format: 'CODE128', width: 2, height: 60, displayValue: false, margin: 0,
         })
       })
     }
@@ -25,24 +21,49 @@ function BarcodeRenderer({ value }: { value: string }) {
 }
 
 /* ─── Helper sinh SKU nội bộ ─── */
-function genSKU() {
-  return 'SP-' + Date.now().toString().slice(-5)
+function genSKU() { return 'SP-' + Date.now().toString().slice(-5) }
+
+/* ─── Upload ảnh lên Supabase Storage, trả về signed URL ─── */
+async function uploadProductImage(file: File, productName: string): Promise<string | null> {
+  const ext      = file.name.split('.').pop() || 'jpg'
+  const safeName = productName.replace(/[^a-z0-9]/gi, '_').toLowerCase()
+  const path     = `${safeName}_${Date.now()}.${ext}`
+
+  const { error } = await supabase.storage
+    .from('product-images')
+    .upload(path, file, { upsert: true, contentType: file.type })
+
+  if (error) { toast.error('Lỗi upload ảnh: ' + error.message); return null }
+
+  const { data } = await supabase.storage
+    .from('product-images')
+    .createSignedUrl(path, 60 * 60 * 24 * 365) // 1 năm
+
+  return data?.signedUrl ?? null
 }
 
 export default function InventoryClient() {
-  const [products, setProducts]         = useState<Product[]>([])
-  const [search, setSearch]             = useState('')
-  const [filterCat, setFilterCat]       = useState('')
+  const [products,     setProducts]     = useState<Product[]>([])
+  const [search,       setSearch]       = useState('')
+  const [filterCat,    setFilterCat]    = useState('')
   const [filterStatus, setFilterStatus] = useState('')
-  const [loading, setLoading]           = useState(true)
-  const [modal, setModal]               = useState<'add' | 'edit' | 'adjust' | null>(null)
-  const [selected, setSelected]         = useState<Product | null>(null)
-  const [form, setForm]                 = useState({ name: '', barcode: '', category: 'Thực phẩm', unit: 'cái', stock: 0, min_stock: 10, cost_price: 0, sell_price: 0 })
-  const [adjQty, setAdjQty]             = useState(0)
-  const [adjType, setAdjType]           = useState<'in' | 'out' | 'adjust'>('in')
-  const [adjNote, setAdjNote]           = useState('')
-  // ── MỚI: modal in mã vạch ──
-  const [barcodeModal, setBarcodeModal] = useState<Product | null>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [modal,        setModal]        = useState<'add' | 'edit' | 'adjust' | null>(null)
+  const [selected,     setSelected]     = useState<Product | null>(null)
+  const [form,         setForm]         = useState({
+    name: '', barcode: '', category: 'Thực phẩm', unit: 'cái',
+    stock: 0, min_stock: 10, cost_price: 0, sell_price: 0, image_url: '',
+  })
+  const [adjQty,        setAdjQty]        = useState(0)
+  const [adjType,       setAdjType]       = useState<'in' | 'out' | 'adjust'>('in')
+  const [adjNote,       setAdjNote]       = useState('')
+  const [barcodeModal,  setBarcodeModal]  = useState<Product | null>(null)
+
+  // ── Upload state ──
+  const [imageFile,     setImageFile]     = useState<File | null>(null)
+  const [imagePreview,  setImagePreview]  = useState<string | null>(null)
+  const [uploading,     setUploading]     = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { load() }, [])
 
@@ -57,8 +78,7 @@ export default function InventoryClient() {
 
   const filtered = products.filter(p => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.barcode.includes(search) ||
-      p.category.toLowerCase().includes(search.toLowerCase())
+      p.barcode.includes(search) || p.category.toLowerCase().includes(search.toLowerCase())
     const matchCat    = !filterCat    || p.category === filterCat
     const matchStatus = !filterStatus || (() => {
       const r = ratio(p)
@@ -75,26 +95,55 @@ export default function InventoryClient() {
   const okCount         = products.filter(p => ratio(p) > 1).length
   const totalStockValue = products.reduce((s, p) => s + p.stock * p.cost_price, 0)
 
+  function resetImageState() {
+    setImageFile(null); setImagePreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   function openAdd() {
-    setForm({ name: '', barcode: '', category: 'Thực phẩm', unit: 'cái', stock: 0, min_stock: 10, cost_price: 0, sell_price: 0 })
+    setForm({ name: '', barcode: '', category: 'Thực phẩm', unit: 'cái', stock: 0, min_stock: 10, cost_price: 0, sell_price: 0, image_url: '' })
+    resetImageState()
     setModal('add')
   }
+
   function openEdit(p: Product) {
     setSelected(p)
-    setForm({ name: p.name, barcode: p.barcode, category: p.category, unit: p.unit, stock: p.stock, min_stock: p.min_stock, cost_price: p.cost_price, sell_price: p.sell_price })
+    setForm({ name: p.name, barcode: p.barcode, category: p.category, unit: p.unit, stock: p.stock, min_stock: p.min_stock, cost_price: p.cost_price, sell_price: p.sell_price, image_url: (p as any).image_url || '' })
+    resetImageState()
+    // Hiện ảnh cũ nếu có
+    if ((p as any).image_url) setImagePreview((p as any).image_url)
     setModal('edit')
   }
+
   function openAdjust(p: Product) {
     setSelected(p); setAdjQty(0); setAdjType('in'); setAdjNote(''); setModal('adjust')
   }
 
-  // ── ĐÃ SỬA: barcode không bắt buộc, tự sinh SKU nếu để trống ──
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { toast.error('Ảnh tối đa 5MB'); return }
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
+
   async function saveProduct() {
     if (!form.name) { toast.error('Vui lòng nhập tên sản phẩm'); return }
 
+    setUploading(true)
+    let finalImageUrl = form.image_url
+
+    // Upload ảnh mới nếu có
+    if (imageFile) {
+      const url = await uploadProductImage(imageFile, form.name)
+      if (url) finalImageUrl = url
+    }
+    setUploading(false)
+
     const finalForm = {
       ...form,
-      barcode: form.barcode.trim() || genSKU(),
+      barcode:   form.barcode.trim() || genSKU(),
+      image_url: finalImageUrl,
     }
 
     if (modal === 'add') {
@@ -106,14 +155,13 @@ export default function InventoryClient() {
       if (error) { toast.error('Lỗi: ' + error.message); return }
       toast.success('Đã cập nhật!')
     }
-    setModal(null); load()
+    setModal(null); resetImageState(); load()
   }
 
   async function deleteProduct(p: Product) {
     if (!confirm(`Xoá "${p.name}"?`)) return
     await supabase.from('products').update({ is_active: false }).eq('id', p.id)
-    toast.success('Đã xoá sản phẩm')
-    load()
+    toast.success('Đã xoá sản phẩm'); load()
   }
 
   async function saveAdjust() {
@@ -141,7 +189,7 @@ export default function InventoryClient() {
   }
   function barPct(p: Product) { return Math.min(100, (p.stock / Math.max(p.min_stock * 2, 1)) * 100) }
 
-  const CATS = ['Thực phẩm', 'Đồ uống', 'Bánh kẹo', 'Gia vị', 'Hóa phẩm', 'Khác']
+  const CATS = ['Thực phẩm', 'Đồ uống', 'Bánh kẹo', 'Gia vị', 'Hóa phẩm', 'Văn phòng phẩm', 'Khác']
 
   const V: Record<string, React.CSSProperties> = {
     page:     { minHeight: '100vh', background: '#f8fafc', fontFamily: "'Be Vietnam Pro', sans-serif", fontSize: 14 },
@@ -154,32 +202,78 @@ export default function InventoryClient() {
     btnGhost: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: "'Be Vietnam Pro', sans-serif", whiteSpace: 'nowrap' },
   }
 
+  // ── Component upload ảnh dùng trong form ──
+  const ImageUploader = () => (
+    <div style={{ gridColumn: '1/-1' }}>
+      <label style={V.label}>Ảnh sản phẩm</label>
+      <div
+        onClick={() => fileInputRef.current?.click()}
+        style={{
+          border: `2px dashed ${imagePreview ? '#6366f1' : '#e2e8f0'}`,
+          borderRadius: 12, padding: imagePreview ? 8 : '20px 16px',
+          background: imagePreview ? '#f8fafc' : '#fafafa',
+          cursor: 'pointer', textAlign: 'center',
+          transition: 'all .15s', position: 'relative',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          minHeight: 80,
+        }}
+      >
+        {imagePreview ? (
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <img
+              src={imagePreview}
+              alt="preview"
+              style={{ width: 100, height: 100, objectFit: 'contain', borderRadius: 10, display: 'block' }}
+            />
+            <button
+              onClick={e => { e.stopPropagation(); resetImageState(); setForm(f => ({ ...f, image_url: '' })) }}
+              style={{
+                position: 'absolute', top: -8, right: -8,
+                width: 22, height: 22, borderRadius: '50%',
+                border: 'none', background: '#ef4444', color: '#fff',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 12, fontWeight: 700,
+              }}
+            >×</button>
+          </div>
+        ) : (
+          <div style={{ color: '#94a3b8' }}>
+            <ImagePlus size={28} style={{ margin: '0 auto 8px', display: 'block', color: '#cbd5e1' }} />
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#64748b' }}>Click để chọn ảnh</div>
+            <div style={{ fontSize: 12, marginTop: 3 }}>PNG, JPG tối đa 5MB</div>
+          </div>
+        )}
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
+    </div>
+  )
+
   return (
     <div style={V.page}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-
         @keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
         @keyframes slideUp { from { opacity: 0; transform: translateY(14px) scale(.98) } to { opacity: 1; transform: translateY(0) scale(1) } }
         @keyframes spin    { to { transform: rotate(360deg) } }
-
         .inv-tr { transition: background .12s; }
         .inv-tr:hover { background: #f8fafc !important; }
         .inv-input:focus { border-color: #6366f1 !important; box-shadow: 0 0 0 3px rgba(99,102,241,.12) !important; background: #fff !important; }
         .inv-select {
           appearance: none;
           background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-          background-repeat: no-repeat;
-          background-position: right 12px center;
-          padding-right: 34px !important;
+          background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px !important;
         }
-
         @media print {
           body > * { display: none !important; }
           #barcode-print-area { display: block !important; }
         }
         #barcode-print-area { display: none; }
-
         .inv-wrap       { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
         .inv-topbar     { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 12px; flex-wrap: wrap; }
         .inv-topbar-btns { display: flex; gap: 8px; flex-shrink: 0; }
@@ -193,7 +287,6 @@ export default function InventoryClient() {
         .inv-footer-summary { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
         .inv-modal-inner { padding: 22px 18px; border-radius: 20px; }
         .inv-form-grid   { display: grid; grid-template-columns: 1fr; gap: 14px; }
-
         @media (min-width: 640px) {
           .inv-wrap     { padding: 24px 24px 48px; }
           .inv-kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 14px; }
@@ -201,7 +294,6 @@ export default function InventoryClient() {
           .inv-form-grid { grid-template-columns: 1fr 1fr; }
           .inv-modal-inner { padding: 28px 28px; }
         }
-
         @media (min-width: 900px) {
           .inv-wrap       { padding: 32px 32px 48px; }
           .inv-kpi-grid   { grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
@@ -260,47 +352,25 @@ export default function InventoryClient() {
         <div className="inv-filter-row">
           <div style={{ position: 'relative', flex: '2 1 220px', minWidth: 180 }}>
             <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none' }} />
-            <input
-              className="inv-input"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Tìm tên, mã vạch..."
-              style={{ ...V.input, paddingLeft: 42, borderRadius: 12 }}
-            />
+            <input className="inv-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm tên, mã vạch..." style={{ ...V.input, paddingLeft: 42, borderRadius: 12 }} />
             {search && (
               <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', padding: 0 }}>
                 <X size={14} />
               </button>
             )}
           </div>
-
-          <select
-            className="inv-input inv-select"
-            value={filterCat}
-            onChange={e => setFilterCat(e.target.value)}
-            style={{ ...V.input, minWidth: 130, borderRadius: 12, cursor: 'pointer', color: filterCat ? '#6366f1' : '#94a3b8', fontWeight: filterCat ? 700 : 400, borderColor: filterCat ? '#6366f1' : '#e2e8f0', background: filterCat ? '#eef2ff' : '#f8fafc' }}
-          >
+          <select className="inv-input inv-select" value={filterCat} onChange={e => setFilterCat(e.target.value)} style={{ ...V.input, minWidth: 130, borderRadius: 12, cursor: 'pointer', color: filterCat ? '#6366f1' : '#94a3b8', fontWeight: filterCat ? 700 : 400, borderColor: filterCat ? '#6366f1' : '#e2e8f0', background: filterCat ? '#eef2ff' : '#f8fafc' }}>
             <option value=''>Tất cả danh mục</option>
             {CATS.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-
-          <select
-            className="inv-input inv-select"
-            value={filterStatus}
-            onChange={e => setFilterStatus(e.target.value)}
-            style={{ ...V.input, minWidth: 140, borderRadius: 12, cursor: 'pointer', color: filterStatus ? '#6366f1' : '#94a3b8', fontWeight: filterStatus ? 700 : 400, borderColor: filterStatus ? '#6366f1' : '#e2e8f0', background: filterStatus ? '#eef2ff' : '#f8fafc' }}
-          >
+          <select className="inv-input inv-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...V.input, minWidth: 140, borderRadius: 12, cursor: 'pointer', color: filterStatus ? '#6366f1' : '#94a3b8', fontWeight: filterStatus ? 700 : 400, borderColor: filterStatus ? '#6366f1' : '#e2e8f0', background: filterStatus ? '#eef2ff' : '#f8fafc' }}>
             <option value=''>Tất cả trạng thái</option>
             <option value='ok'>✅ Đủ hàng</option>
             <option value='warning'>⚠️ Sắp hết</option>
             <option value='critical'>🚨 Hết gấp</option>
           </select>
-
           {(filterCat || filterStatus) && (
-            <button
-              onClick={() => { setFilterCat(''); setFilterStatus('') }}
-              style={{ ...V.btnGhost, borderRadius: 12, color: '#ef4444', borderColor: '#fecdd3', background: '#fff1f2', flex: '0 0 auto' }}
-            >
+            <button onClick={() => { setFilterCat(''); setFilterStatus('') }} style={{ ...V.btnGhost, borderRadius: 12, color: '#ef4444', borderColor: '#fecdd3', background: '#fff1f2', flex: '0 0 auto' }}>
               <X size={13} />Xoá lọc
             </button>
           )}
@@ -309,9 +379,7 @@ export default function InventoryClient() {
         {/* ── MOBILE: Card list ── */}
         <div className="inv-card-list">
           {loading ? (
-            [...Array(4)].map((_, i) => (
-              <div key={i} style={{ ...V.card, padding: 16, height: 100, background: '#f8fafc' }} />
-            ))
+            [...Array(4)].map((_, i) => <div key={i} style={{ ...V.card, padding: 16, height: 100, background: '#f8fafc' }} />)
           ) : filtered.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '48px 0', color: '#94a3b8' }}>
               <Package size={36} style={{ margin: '0 auto 12px', opacity: .2, display: 'block' }} />
@@ -320,9 +388,16 @@ export default function InventoryClient() {
             </div>
           ) : filtered.map(p => {
             const st = statusOf(p)
+            const imgUrl = (p as any).image_url
             return (
               <div key={p.id} style={{ ...V.card, padding: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                  {/* Ảnh sản phẩm */}
+                  {imgUrl && (
+                    <div style={{ width: 52, height: 52, borderRadius: 10, overflow: 'hidden', flexShrink: 0, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                      <img src={imgUrl} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    </div>
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginBottom: 3 }}>{p.name}</div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -335,7 +410,6 @@ export default function InventoryClient() {
                     {st.label}
                   </div>
                 </div>
-
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
                     <span style={{ fontSize: 13, color: '#64748b' }}>Tồn kho</span>
@@ -346,7 +420,6 @@ export default function InventoryClient() {
                   </div>
                   <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>Tối thiểu: {p.min_stock}</div>
                 </div>
-
                 <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
                   <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1px solid #f1f5f9' }}>
                     <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 3 }}>Giá nhập</div>
@@ -357,8 +430,6 @@ export default function InventoryClient() {
                     <div style={{ fontSize: 14, fontWeight: 800, color: '#15803d', fontFamily: "'JetBrains Mono',monospace" }}>{p.sell_price.toLocaleString('vi-VN')}đ</div>
                   </div>
                 </div>
-
-                {/* ── MỚI: thêm nút in mã vạch mobile ── */}
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => openAdjust(p)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', borderRadius: 10, border: 'none', background: '#f0fdf4', color: '#15803d', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'Be Vietnam Pro',sans-serif" }}>
                     <PackagePlus size={16} />Nhập/Xuất
@@ -376,7 +447,6 @@ export default function InventoryClient() {
               </div>
             )
           })}
-
           {!loading && filtered.length > 0 && (
             <div style={{ padding: '12px 16px', borderRadius: 12, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 14, color: '#64748b', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <span>Hiển thị <strong style={{ color: '#475569' }}>{filtered.length}</strong> / {products.length} sản phẩm</span>
@@ -392,15 +462,16 @@ export default function InventoryClient() {
               <thead>
                 <tr>
                   {[
-                    { l: 'Sản phẩm',   w: '20%' },
-                    { l: 'Mã vạch',    w: '11%' },
-                    { l: 'Danh mục',   w: '11%' },
-                    { l: 'Tồn kho',    w: '13%' },
+                    { l: 'Ảnh',        w: '6%'  },
+                    { l: 'Sản phẩm',   w: '18%' },
+                    { l: 'Mã vạch',    w: '10%' },
+                    { l: 'Danh mục',   w: '10%' },
+                    { l: 'Tồn kho',    w: '12%' },
                     { l: 'Tối thiểu',  w: '7%'  },
                     { l: 'Giá nhập',   w: '9%'  },
                     { l: 'Giá bán',    w: '9%'  },
                     { l: 'T.Thái',     w: '6%'  },
-                    { l: '',           w: '14%' },
+                    { l: '',           w: '13%' },
                   ].map(h => <th key={h.l} style={{ ...V.th, width: h.w } as React.CSSProperties}>{h.l}</th>)}
                 </tr>
               </thead>
@@ -408,38 +479,42 @@ export default function InventoryClient() {
                 {loading ? (
                   [...Array(6)].map((_, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      {[...Array(9)].map((_, j) => (
-                        <td key={j} style={V.td}>
-                          <div style={{ height: 14, borderRadius: 6, background: '#f1f5f9', width: j === 0 ? '72%' : '52%' }} />
-                        </td>
+                      {[...Array(10)].map((_, j) => (
+                        <td key={j} style={V.td}><div style={{ height: 14, borderRadius: 6, background: '#f1f5f9', width: j === 1 ? '72%' : '52%' }} /></td>
                       ))}
                     </tr>
                   ))
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '72px 0', color: '#94a3b8' }}>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: '72px 0', color: '#94a3b8' }}>
                       <Package size={40} style={{ margin: '0 auto 14px', opacity: .2, display: 'block' }} />
                       <div style={{ fontSize: 15, fontWeight: 700 }}>Không tìm thấy sản phẩm</div>
                       <div style={{ fontSize: 14, marginTop: 5 }}>Thử thay đổi từ khoá tìm kiếm hoặc bộ lọc</div>
                     </td>
                   </tr>
                 ) : filtered.map((p, idx) => {
-                  const st = statusOf(p)
+                  const st     = statusOf(p)
+                  const imgUrl = (p as any).image_url
                   return (
                     <tr key={p.id} className="inv-tr" style={{ borderBottom: idx < filtered.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                      {/* Cột ảnh */}
+                      <td style={V.td}>
+                        <div style={{ width: 44, height: 44, borderRadius: 10, overflow: 'hidden', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {imgUrl
+                            ? <img src={imgUrl} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                            : <span style={{ fontSize: 20 }}>📦</span>
+                          }
+                        </div>
+                      </td>
                       <td style={V.td}>
                         <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 14 }}>{p.name}</div>
                         <div style={{ fontSize: 13, color: '#cbd5e1', marginTop: 3, fontWeight: 500 }}>{p.unit}</div>
                       </td>
                       <td style={V.td}>
-                        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: '#64748b', background: '#f8fafc', padding: '3px 8px', borderRadius: 6, border: '1px solid #f1f5f9', letterSpacing: '.02em' }}>
-                          {p.barcode}
-                        </span>
+                        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: '#64748b', background: '#f8fafc', padding: '3px 8px', borderRadius: 6, border: '1px solid #f1f5f9', letterSpacing: '.02em' }}>{p.barcode}</span>
                       </td>
                       <td style={V.td}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#6366f1', background: '#eef2ff', padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap' }}>
-                          {p.category}
-                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#6366f1', background: '#eef2ff', padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap' }}>{p.category}</span>
                       </td>
                       <td style={V.td}>
                         <span style={{ fontSize: 16, fontWeight: 800, color: numColor(p) }}>{p.stock}</span>
@@ -449,26 +524,20 @@ export default function InventoryClient() {
                         </div>
                       </td>
                       <td style={{ ...V.td, color: '#64748b', fontWeight: 600, fontSize: 14 }}>{p.min_stock}</td>
-                      <td style={{ ...V.td, fontFamily: "'JetBrains Mono',monospace", fontSize: 13, color: '#64748b', fontWeight: 500 }}>
-                        {p.cost_price.toLocaleString('vi-VN')}đ
-                      </td>
-                      <td style={{ ...V.td, fontFamily: "'JetBrains Mono',monospace", fontSize: 13, fontWeight: 800, color: '#0f172a' }}>
-                        {p.sell_price.toLocaleString('vi-VN')}đ
-                      </td>
+                      <td style={{ ...V.td, fontFamily: "'JetBrains Mono',monospace", fontSize: 13, color: '#64748b', fontWeight: 500 }}>{p.cost_price.toLocaleString('vi-VN')}đ</td>
+                      <td style={{ ...V.td, fontFamily: "'JetBrains Mono',monospace", fontSize: 13, fontWeight: 800, color: '#0f172a' }}>{p.sell_price.toLocaleString('vi-VN')}đ</td>
                       <td style={V.td}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, borderRadius: 10, background: st.bg, border: `1px solid ${st.border}` }}>
                           <span style={{ width: 18, height: 18, borderRadius: 5, background: st.sqColor, display: 'inline-block' }} />
                         </div>
                       </td>
-
-                      {/* ── MỚI: thêm nút Printer vào action buttons desktop ── */}
                       <td style={V.td}>
                         <div style={{ display: 'flex', gap: 5 }}>
                           {([
-                            { fn: () => openAdjust(p),    icon: <PackagePlus size={17} />, title: 'Nhập/Xuất kho', bg: '#f0fdf4', hbg: '#dcfce7', c: '#15803d' },
-                            { fn: () => openEdit(p),      icon: <Pencil size={17} />,      title: 'Chỉnh sửa',    bg: '#eff6ff', hbg: '#dbeafe', c: '#1d4ed8' },
-                            { fn: () => setBarcodeModal(p), icon: <Printer size={17} />,   title: 'In mã vạch',   bg: '#fefce8', hbg: '#fef9c3', c: '#92400e' },
-                            { fn: () => deleteProduct(p), icon: <Trash2 size={17} />,      title: 'Xoá',          bg: '#fff1f2', hbg: '#fee2e2', c: '#be123c' },
+                            { fn: () => openAdjust(p),      icon: <PackagePlus size={17} />, title: 'Nhập/Xuất kho', bg: '#f0fdf4', hbg: '#dcfce7', c: '#15803d' },
+                            { fn: () => openEdit(p),        icon: <Pencil size={17} />,      title: 'Chỉnh sửa',    bg: '#eff6ff', hbg: '#dbeafe', c: '#1d4ed8' },
+                            { fn: () => setBarcodeModal(p), icon: <Printer size={17} />,     title: 'In mã vạch',   bg: '#fefce8', hbg: '#fef9c3', c: '#92400e' },
+                            { fn: () => deleteProduct(p),   icon: <Trash2 size={17} />,      title: 'Xoá',          bg: '#fff1f2', hbg: '#fee2e2', c: '#be123c' },
                           ] as const).map((btn, bi) => (
                             <button key={bi} onClick={btn.fn} title={btn.title}
                               style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', background: btn.bg, color: btn.c, transition: 'background .12s, transform .1s' }}
@@ -485,14 +554,9 @@ export default function InventoryClient() {
               </tbody>
             </table>
           </div>
-
           <div className="inv-footer">
             <div className="inv-footer-legend">
-              {[
-                { c: '#22c55e', label: 'Đủ hàng' },
-                { c: '#f59e0b', label: 'Sắp hết' },
-                { c: '#ef4444', label: 'Hết gấp — nhập ngay' },
-              ].map(l => (
+              {[{ c: '#22c55e', label: 'Đủ hàng' }, { c: '#f59e0b', label: 'Sắp hết' }, { c: '#ef4444', label: 'Hết gấp — nhập ngay' }].map(l => (
                 <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ width: 10, height: 10, borderRadius: 3, background: l.c, display: 'inline-block', flexShrink: 0 }} />
                   <span style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>{l.label}</span>
@@ -500,13 +564,9 @@ export default function InventoryClient() {
               ))}
             </div>
             <div className="inv-footer-summary">
-              <span style={{ fontSize: 14, color: '#94a3b8' }}>
-                Hiển thị <strong style={{ color: '#475569' }}>{filtered.length}</strong> / {products.length} sản phẩm
-              </span>
+              <span style={{ fontSize: 14, color: '#94a3b8' }}>Hiển thị <strong style={{ color: '#475569' }}>{filtered.length}</strong> / {products.length} sản phẩm</span>
               <span style={{ width: 1, height: 16, background: '#e2e8f0', display: 'inline-block' }} />
-              <span style={{ fontSize: 14, color: '#94a3b8' }}>
-                Vốn tồn kho: <strong style={{ color: '#1d4ed8' }}>{Math.round(totalStockValue / 1000).toLocaleString()}K đ</strong>
-              </span>
+              <span style={{ fontSize: 14, color: '#94a3b8' }}>Vốn tồn kho: <strong style={{ color: '#1d4ed8' }}>{Math.round(totalStockValue / 1000).toLocaleString()}K đ</strong></span>
             </div>
           </div>
         </div>
@@ -517,11 +577,10 @@ export default function InventoryClient() {
         </div>
       </div>
 
-      {/* ════════════ MODAL ADD / EDIT ════════════ */}
+      {/* ════════ MODAL ADD / EDIT ════════ */}
       {(modal === 'add' || modal === 'edit') && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16, backdropFilter: 'blur(6px)', animation: 'fadeIn .15s ease', overflowY: 'auto' }}>
-          <div className="inv-modal-inner" style={{ background: '#fff', borderRadius: 20, boxShadow: '0 32px 80px rgba(0,0,0,.18)', width: '100%', maxWidth: 520, animation: 'slideUp .22s cubic-bezier(.34,1.4,.64,1)', margin: 'auto' }}>
-
+          <div className="inv-modal-inner" style={{ background: '#fff', borderRadius: 20, boxShadow: '0 32px 80px rgba(0,0,0,.18)', width: '100%', maxWidth: 540, animation: 'slideUp .22s cubic-bezier(.34,1.4,.64,1)', margin: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 22 }}>
               <div>
                 <h2 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.025em', margin: 0 }}>
@@ -529,32 +588,26 @@ export default function InventoryClient() {
                 </h2>
                 <p style={{ fontSize: 14, color: '#94a3b8', marginTop: 4, marginBottom: 0 }}>Điền đầy đủ thông tin sản phẩm</p>
               </div>
-              <button onClick={() => setModal(null)} style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', flexShrink: 0 }}>
+              <button onClick={() => { setModal(null); resetImageState() }} style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', flexShrink: 0 }}>
                 <X size={14} />
               </button>
             </div>
 
             <div className="inv-form-grid">
+              {/* ── UPLOAD ẢNH ── */}
+              <ImageUploader />
+
               <div style={{ gridColumn: '1/-1' }}>
                 <label style={V.label}>Tên sản phẩm *</label>
-                <input className="inv-input" style={V.input} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="VD: Mì tôm Hảo Hảo" />
+                <input className="inv-input" style={V.input} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="VD: Bút bi Thiên Long" />
               </div>
-
-              {/* ── ĐÃ SỬA: barcode không bắt buộc ── */}
               <div>
                 <label style={V.label}>
                   Mã vạch
                   <span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6, fontSize: 12 }}>(để trống → tự sinh SKU)</span>
                 </label>
-                <input
-                  className="inv-input"
-                  style={{ ...V.input, fontFamily: "'JetBrains Mono',monospace" }}
-                  value={form.barcode}
-                  onChange={e => setForm({ ...form, barcode: e.target.value })}
-                  placeholder="Để trống → SP-XXXXX tự động"
-                />
+                <input className="inv-input" style={{ ...V.input, fontFamily: "'JetBrains Mono',monospace" }} value={form.barcode} onChange={e => setForm({ ...form, barcode: e.target.value })} placeholder="Để trống → SP-XXXXX tự động" />
               </div>
-
               <div>
                 <label style={V.label}>Danh mục</label>
                 <select className="inv-input inv-select" style={{ ...V.input, paddingRight: 34 }} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
@@ -591,20 +644,24 @@ export default function InventoryClient() {
             )}
 
             <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
-              <button onClick={() => setModal(null)} style={V.btnGhost}>Huỷ bỏ</button>
-              <button onClick={saveProduct} style={V.btnPri}>
-                {modal === 'add' ? <><Plus size={14} />Thêm sản phẩm</> : <><Pencil size={14} />Lưu thay đổi</>}
+              <button onClick={() => { setModal(null); resetImageState() }} style={V.btnGhost}>Huỷ bỏ</button>
+              <button onClick={saveProduct} disabled={uploading} style={{ ...V.btnPri, opacity: uploading ? .7 : 1 }}>
+                {uploading
+                  ? <><RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />Đang upload...</>
+                  : modal === 'add'
+                    ? <><Plus size={14} />Thêm sản phẩm</>
+                    : <><Pencil size={14} />Lưu thay đổi</>
+                }
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ════════════ MODAL ADJUST ════════════ */}
+      {/* ════════ MODAL ADJUST ════════ */}
       {modal === 'adjust' && selected && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16, backdropFilter: 'blur(6px)', animation: 'fadeIn .15s ease', overflowY: 'auto' }}>
           <div className="inv-modal-inner" style={{ background: '#fff', borderRadius: 20, boxShadow: '0 32px 80px rgba(0,0,0,.18)', width: '100%', maxWidth: 420, animation: 'slideUp .22s cubic-bezier(.34,1.4,.64,1)', margin: 'auto' }}>
-
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 18 }}>
               <div>
                 <h2 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.025em', margin: 0 }}>Điều chỉnh kho</h2>
@@ -614,23 +671,15 @@ export default function InventoryClient() {
                 <X size={14} />
               </button>
             </div>
-
             <div style={{ background: '#f8fafc', borderRadius: 12, padding: '14px 16px', marginBottom: 18, border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 14, color: '#64748b', fontWeight: 600 }}>Tồn hiện tại</span>
-              <span style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>
-                {selected.stock} <span style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8' }}>{selected.unit}</span>
-              </span>
+              <span style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>{selected.stock} <span style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8' }}>{selected.unit}</span></span>
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <label style={V.label}>Loại giao dịch</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
-                  {([
-                    ['in',     'Nhập kho',   '#15803d', '#f0fdf4'],
-                    ['out',    'Xuất kho',   '#be123c', '#fff1f2'],
-                    ['adjust', 'Điều chỉnh', '#4f46e5', '#eef2ff'],
-                  ] as const).map(([t, label, c, bg]) => (
+                  {([['in','Nhập kho','#15803d','#f0fdf4'],['out','Xuất kho','#be123c','#fff1f2'],['adjust','Điều chỉnh','#4f46e5','#eef2ff']] as const).map(([t, label, c, bg]) => (
                     <button key={t} onClick={() => setAdjType(t as 'in' | 'out' | 'adjust')}
                       style={{ padding: '11px 4px', borderRadius: 10, border: `1.5px solid ${adjType === t ? c : '#e2e8f0'}`, background: adjType === t ? bg : '#fff', color: adjType === t ? c : '#64748b', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'Be Vietnam Pro',sans-serif", transition: 'all .15s' }}>
                       {label}
@@ -638,17 +687,14 @@ export default function InventoryClient() {
                   ))}
                 </div>
               </div>
-
               <div>
                 <label style={V.label}>Số lượng</label>
                 <input className="inv-input" type="number" style={V.input} value={adjQty} min={1} onChange={e => setAdjQty(+e.target.value)} />
               </div>
-
               <div>
                 <label style={V.label}>Ghi chú</label>
                 <input className="inv-input" style={V.input} value={adjNote} onChange={e => setAdjNote(e.target.value)} placeholder="VD: Nhập từ nhà cung cấp A" />
               </div>
-
               <div style={{ borderRadius: 12, border: '1.5px dashed #e2e8f0', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fafafa' }}>
                 <span style={{ fontSize: 14, color: '#64748b', fontWeight: 600 }}>Tồn sau điều chỉnh</span>
                 <span style={{ fontSize: 22, fontWeight: 800, color: '#0f172a' }}>
@@ -657,22 +703,18 @@ export default function InventoryClient() {
                 </span>
               </div>
             </div>
-
             <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
               <button onClick={() => setModal(null)} style={V.btnGhost}>Huỷ bỏ</button>
-              <button onClick={saveAdjust} style={V.btnPri}>
-                <PackagePlus size={14} />Xác nhận
-              </button>
+              <button onClick={saveAdjust} style={V.btnPri}><PackagePlus size={14} />Xác nhận</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ════════════ MODAL IN MÃ VẠCH (MỚI) ════════════ */}
+      {/* ════════ MODAL IN MÃ VẠCH ════════ */}
       {barcodeModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16, backdropFilter: 'blur(6px)', animation: 'fadeIn .15s ease' }}>
           <div style={{ background: '#fff', borderRadius: 20, boxShadow: '0 32px 80px rgba(0,0,0,.18)', width: '100%', maxWidth: 360, padding: 28, animation: 'slideUp .22s cubic-bezier(.34,1.4,.64,1)' }}>
-
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
               <div>
                 <h2 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', margin: 0 }}>In mã vạch</h2>
@@ -682,31 +724,20 @@ export default function InventoryClient() {
                 <X size={14} />
               </button>
             </div>
-
-            {/* Barcode preview */}
             <div id="barcode-print-area" style={{ background: '#fff', border: '2px dashed #e2e8f0', borderRadius: 14, padding: '24px 20px', textAlign: 'center', marginBottom: 16 }}>
               <BarcodeRenderer value={barcodeModal.barcode} />
               <p style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: '12px 0 4px' }}>{barcodeModal.name}</p>
               <p style={{ fontSize: 13, color: '#94a3b8', margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{barcodeModal.barcode}</p>
-              {barcodeModal.sell_price > 0 && (
-                <p style={{ fontSize: 14, fontWeight: 700, color: '#15803d', margin: '6px 0 0' }}>
-                  {barcodeModal.sell_price.toLocaleString('vi-VN')}đ
-                </p>
-              )}
+              {barcodeModal.sell_price > 0 && <p style={{ fontSize: 14, fontWeight: 700, color: '#15803d', margin: '6px 0 0' }}>{barcodeModal.sell_price.toLocaleString('vi-VN')}đ</p>}
             </div>
-
-            {/* Ghi chú SKU nội bộ */}
             {barcodeModal.barcode.startsWith('SP-') && (
               <div style={{ padding: '10px 14px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 13, color: '#92400e', marginBottom: 16, display: 'flex', gap: 8 }}>
                 ⚠️ Đây là SKU nội bộ tự sinh. In ra và dán lên sản phẩm để quét sau này.
               </div>
             )}
-
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setBarcodeModal(null)} style={V.btnGhost}>Đóng</button>
-              <button onClick={() => window.print()} style={{ ...V.btnPri, flex: 1, justifyContent: 'center' }}>
-                <Printer size={14} />In ngay
-              </button>
+              <button onClick={() => window.print()} style={{ ...V.btnPri, flex: 1, justifyContent: 'center' }}><Printer size={14} />In ngay</button>
             </div>
           </div>
         </div>
