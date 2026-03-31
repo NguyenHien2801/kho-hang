@@ -2,29 +2,28 @@
 /**
  * ProductImage Component
  * ----------------------
- * Tự động lấy ảnh sản phẩm từ Open Food Facts API theo mã vạch.
- * Nếu không tìm thấy ảnh → hiển thị emoji theo danh mục.
- * Có cache trong memory để không gọi API lặp lại.
- *
- * Cách dùng:
- *   <ProductImage barcode="8934673000011" category="Thực phẩm" name="Mì Hảo Hảo" size={48} />
+ * Ưu tiên load ảnh từ image_url (Supabase Storage).
+ * Fallback: Open Food Facts API theo barcode.
+ * Fallback cuối: emoji theo danh mục.
  */
 
 import { useState, useEffect } from 'react'
 
 const CATEGORY_EMOJI: Record<string, string> = {
-  'Thực phẩm': '🍜',
-  'Đồ uống':   '🥤',
-  'Bánh kẹo':  '🍪',
-  'Gia vị':    '🧂',
-  'Hóa phẩm':  '🧴',
-  'Khác':      '📦',
+  'Thực phẩm':       '🍜',
+  'Đồ uống':         '🥤',
+  'Bánh kẹo':        '🍪',
+  'Gia vị':          '🧂',
+  'Hóa phẩm':        '🧴',
+  'Văn phòng phẩm':  '✏️',
+  'Khác':            '📦',
 }
 
 const imageCache: Record<string, string | null> = {}
 
 interface ProductImageProps {
   barcode:    string
+  imageUrl?:  string          // ← ƯU TIÊN SỐ 1: từ Supabase Storage
   category?:  string
   name?:      string
   size?:      number
@@ -33,17 +32,27 @@ interface ProductImageProps {
 }
 
 export default function ProductImage({
-  barcode, category = 'Khác', name = '', size = 48, className, style,
+  barcode, imageUrl, category = 'Khác', name = '', size = 48, className, style,
 }: ProductImageProps) {
-  const cached = imageCache[barcode]
-  const [imgUrl,  setImgUrl]  = useState<string | null>(cached !== undefined ? cached : null)
-  const [loading, setLoading] = useState(cached === undefined)
+  // Nếu có imageUrl từ database → dùng luôn, không cần fetch
+  const [imgUrl,  setImgUrl]  = useState<string | null>(imageUrl || imageCache[barcode] || null)
+  const [loading, setLoading] = useState(!imageUrl && imageCache[barcode] === undefined)
   const [error,   setError]   = useState(false)
 
   useEffect(() => {
+    // Có ảnh từ database → không fetch API
+    if (imageUrl) { setImgUrl(imageUrl); setLoading(false); return }
+
+    // Đã cache rồi
     if (imageCache[barcode] !== undefined) {
       setImgUrl(imageCache[barcode]); setLoading(false); return
     }
+
+    // Barcode là SKU nội bộ (SP-XXXXX) → không fetch
+    if (barcode.startsWith('SP-')) {
+      imageCache[barcode] = null; setImgUrl(null); setLoading(false); return
+    }
+
     let cancelled = false
     setLoading(true); setError(false)
 
@@ -67,7 +76,7 @@ export default function ProductImage({
     }
     fetchImage()
     return () => { cancelled = true }
-  }, [barcode])
+  }, [barcode, imageUrl])
 
   const emoji = CATEGORY_EMOJI[category] || '📦'
   const box: React.CSSProperties = {
@@ -78,11 +87,15 @@ export default function ProductImage({
     fontSize: Math.round(size * 0.45), userSelect: 'none', ...style,
   }
 
-  if (loading) return <div className={className} style={{ ...box, background:'linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%)', backgroundSize:'200% 100%', animation:'shimmer 1.5s infinite' }} />
-  if (!imgUrl || error) return <div className={className} style={box} title={name}>{emoji}</div>
+  if (loading) return (
+    <div className={className} style={{ ...box, background: 'linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
+  )
+  if (!imgUrl || error) return (
+    <div className={className} style={box} title={name}>{emoji}</div>
+  )
   return (
     <div className={className} style={box}>
-      <img src={imgUrl} alt={name} title={name} style={{ width:'100%', height:'100%', objectFit:'contain' }} onError={() => setError(true)} />
+      <img src={imgUrl} alt={name} title={name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} onError={() => setError(true)} />
     </div>
   )
 }
