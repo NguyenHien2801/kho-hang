@@ -452,7 +452,14 @@ export default function DashboardClient() {
                     const pct    = Math.min(100, Math.round((p.current_stock / Math.max(p.current_stock, prod?.min_stock||30)) * 100))
                     return (
                       <div key={p.product_id} style={{ display:'flex', alignItems:'center', gap:10, padding:'12px', borderRadius:12, background:isCrit?'#fff1f2':'#fffbeb', border:`1px solid ${isCrit?'#fecdd3':'#fde68a'}`, flexShrink:0 }}>
-                        <ProductImage barcode={p.barcode} category={prod?.category} name={p.product_name} size={44}/>
+                        {/* ── FIX: truyền imageUrl từ Supabase Storage ── */}
+                        <ProductImage
+                          barcode={p.barcode}
+                          imageUrl={(prod as any)?.image_url}
+                          category={prod?.category}
+                          name={p.product_name}
+                          size={44}
+                        />
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
                             <span style={{ fontSize:14, fontWeight:600, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'58%' }}>{p.product_name}</span>
@@ -610,7 +617,14 @@ export default function DashboardClient() {
                   <div key={p.product_id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:12, background:'#f8fafc', border:'1px solid #f1f5f9' }}>
                     <span style={{ fontSize:18, flexShrink:0, width:24, textAlign:'center' }}>{medals[i]}</span>
                     <div style={{ width:52, height:52, borderRadius:10, overflow:'hidden', background:'#f1f5f9', border:'1px solid #e2e8f0', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                      <ProductImage barcode={p.barcode} category={p.category} name={p.product_name} size={50}/>
+                      {/* ── FIX: truyền imageUrl từ Supabase Storage ── */}
+                      <ProductImage
+                        barcode={p.barcode}
+                        imageUrl={(products.find(x => x.id === p.product_id) as any)?.image_url}
+                        category={p.category}
+                        name={p.product_name}
+                        size={50}
+                      />
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:14, fontWeight:600, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.product_name}</div>
@@ -714,7 +728,14 @@ export default function DashboardClient() {
                   {/* Ảnh sản phẩm lớn — căn giữa */}
                   <div style={{ display:'flex', justifyContent:'center', marginBottom:12 }}>
                     <div style={{ width:80, height:80, borderRadius:12, overflow:'hidden', background:'#fff', border:`1px solid ${borders[i]}`, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
-                      <ProductImage barcode={p.barcode} category={prod?.category} name={p.product_name} size={76}/>
+                      {/* ── FIX: truyền imageUrl từ Supabase Storage ── */}
+                      <ProductImage
+                        barcode={p.barcode}
+                        imageUrl={(prod as any)?.image_url}
+                        category={prod?.category}
+                        name={p.product_name}
+                        size={76}
+                      />
                     </div>
                   </div>
                   {/* Tên sản phẩm */}
