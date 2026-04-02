@@ -37,7 +37,7 @@ async function uploadProductImage(file: File, productName: string): Promise<stri
 
   const { data } = await supabase.storage
     .from('product-images')
-    .createSignedUrl(path, 60 * 60 * 24 * 365) // 1 năm
+    .createSignedUrl(path, 60 * 60 * 24 * 365)
 
   return data?.signedUrl ?? null
 }
@@ -50,6 +50,7 @@ export default function InventoryClient() {
   const [loading,      setLoading]      = useState(true)
   const [modal,        setModal]        = useState<'add' | 'edit' | 'adjust' | null>(null)
   const [selected,     setSelected]     = useState<Product | null>(null)
+  const [currentUser,  setCurrentUser]  = useState<any>(null)
   const [form,         setForm]         = useState({
     name: '', barcode: '', category: 'Thực phẩm', unit: 'cái',
     stock: 0, min_stock: 10, cost_price: 0, sell_price: 0, image_url: '',
@@ -58,20 +59,44 @@ export default function InventoryClient() {
   const [adjType,       setAdjType]       = useState<'in' | 'out' | 'adjust'>('in')
   const [adjNote,       setAdjNote]       = useState('')
   const [barcodeModal,  setBarcodeModal]  = useState<Product | null>(null)
+  const [updatingStock, setUpdatingStock] = useState(false)
 
-  // ── Upload state ──
+  // Upload state
   const [imageFile,     setImageFile]     = useState<File | null>(null)
   const [imagePreview,  setImagePreview]  = useState<string | null>(null)
   const [uploading,     setUploading]     = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { load() }, [])
+  // Load user and products
+  useEffect(() => {
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      setCurrentUser(user)
+      if (user) {
+        await loadProducts(user.id)
+      } else {
+        setLoading(false)
+      }
+    }
+    init()
+  }, [])
 
-  async function load() {
+  async function loadProducts(userId: string) {
     setLoading(true)
-    const { data } = await supabase.from('products').select('*').eq('is_active', true).order('name')
+    const { data } = await supabase
+      .from('products')
+      .select('*')
+      .eq('is_active', true)
+      .eq('user_id', userId)
+      .order('name')
     setProducts(data || [])
     setLoading(false)
+  }
+
+  async function load() {
+    if (currentUser?.id) {
+      await loadProducts(currentUser.id)
+    }
   }
 
   function ratio(p: Product) { return p.stock / (p.min_stock || 1) }
@@ -110,7 +135,6 @@ export default function InventoryClient() {
     setSelected(p)
     setForm({ name: p.name, barcode: p.barcode, category: p.category, unit: p.unit, stock: p.stock, min_stock: p.min_stock, cost_price: p.cost_price, sell_price: p.sell_price, image_url: (p as any).image_url || '' })
     resetImageState()
-    // Hiện ảnh cũ nếu có
     if ((p as any).image_url) setImagePreview((p as any).image_url)
     setModal('edit')
   }
@@ -129,11 +153,11 @@ export default function InventoryClient() {
 
   async function saveProduct() {
     if (!form.name) { toast.error('Vui lòng nhập tên sản phẩm'); return }
+    if (!currentUser?.id) { toast.error('Vui lòng đăng nhập'); return }
 
     setUploading(true)
     let finalImageUrl = form.image_url
 
-    // Upload ảnh mới nếu có
     if (imageFile) {
       const url = await uploadProductImage(imageFile, form.name)
       if (url) finalImageUrl = url
@@ -144,6 +168,7 @@ export default function InventoryClient() {
       ...form,
       barcode:   form.barcode.trim() || genSKU(),
       image_url: finalImageUrl,
+      user_id:   currentUser.id,
     }
 
     if (modal === 'add') {
@@ -151,7 +176,7 @@ export default function InventoryClient() {
       if (error) { toast.error('Lỗi: ' + error.message); return }
       toast.success('Đã thêm sản phẩm!')
     } else if (selected) {
-      const { error } = await supabase.from('products').update(finalForm).eq('id', selected.id)
+      const { error } = await supabase.from('products').update(finalForm).eq('id', selected.id).eq('user_id', currentUser.id)
       if (error) { toast.error('Lỗi: ' + error.message); return }
       toast.success('Đã cập nhật!')
     }
@@ -160,19 +185,88 @@ export default function InventoryClient() {
 
   async function deleteProduct(p: Product) {
     if (!confirm(`Xoá "${p.name}"?`)) return
-    await supabase.from('products').update({ is_active: false }).eq('id', p.id)
+    if (!currentUser?.id) return
+    await supabase.from('products').update({ is_active: false }).eq('id', p.id).eq('user_id', currentUser.id)
     toast.success('Đã xoá sản phẩm'); load()
   }
 
   async function saveAdjust() {
-    if (!selected || adjQty === 0) { toast.error('Nhập số lượng điều chỉnh'); return }
-    const delta    = adjType === 'out' ? -Math.abs(adjQty) : Math.abs(adjQty)
+    if (!selected || adjQty === 0) { 
+      toast.error('Nhập số lượng điều chỉnh'); 
+      return 
+    }
+    if (!currentUser?.id) { 
+      toast.error('Vui lòng đăng nhập'); 
+      return 
+    }
+    
+    setUpdatingStock(true)
+    
+    const delta = adjType === 'out' ? -Math.abs(adjQty) : Math.abs(adjQty)
     const newStock = Math.max(0, selected.stock + delta)
-    const { error: e1 } = await supabase.from('products').update({ stock: newStock }).eq('id', selected.id)
-    const { error: e2 } = await supabase.from('inventory_transactions').insert([{ product_id: selected.id, type: adjType, quantity: delta, note: adjNote }])
-    if (e1 || e2) { toast.error('Lỗi cập nhật'); return }
-    toast.success(`Đã ${adjType === 'in' ? 'nhập' : adjType === 'out' ? 'xuất' : 'điều chỉnh'} ${Math.abs(adjQty)} ${selected.unit}`)
-    setModal(null); load()
+    
+    console.log('=== BẮT ĐẦU CẬP NHẬT KHO ===')
+    console.log('Sản phẩm:', selected.name)
+    console.log('ID:', selected.id)
+    console.log('Tồn cũ:', selected.stock)
+    console.log('Tồn mới:', newStock)
+    console.log('Delta:', delta)
+    console.log('Loại:', adjType)
+    console.log('User ID:', currentUser.id)
+    
+    try {
+      // Bước 1: Cập nhật stock trong bảng products
+      const { error: e1, data: updateData } = await supabase
+        .from('products')
+        .update({ stock: newStock })
+        .eq('id', selected.id)
+        .eq('user_id', currentUser.id)
+        .select()
+      
+      if (e1) {
+        console.error('LỖI cập nhật products:', e1)
+        toast.error('Lỗi cập nhật kho: ' + e1.message)
+        setUpdatingStock(false)
+        return
+      }
+      
+      console.log('Cập nhật products thành công:', updateData)
+      
+      // Bước 2: Thêm record vào inventory_transactions (nếu bảng tồn tại)
+      try {
+        const { error: e2 } = await supabase
+          .from('inventory_transactions')
+          .insert([{ 
+            product_id: selected.id, 
+            type: adjType, 
+            quantity: delta, 
+            note: adjNote || `${adjType === 'in' ? 'Nhập' : adjType === 'out' ? 'Xuất' : 'Điều chỉnh'} ${Math.abs(adjQty)} ${selected.unit}`,
+            user_id: currentUser.id,
+            created_at: new Date().toISOString()
+          }])
+        
+        if (e2) {
+          console.warn('LỖI ghi transaction (không ảnh hưởng đến tồn kho):', e2)
+          // Không return ở đây vì stock đã cập nhật thành công
+        } else {
+          console.log('Ghi transaction thành công')
+        }
+      } catch (transError) {
+        console.warn('Lỗi khi ghi transaction:', transError)
+      }
+      
+      toast.success(`Đã ${adjType === 'in' ? 'nhập' : adjType === 'out' ? 'xuất' : 'điều chỉnh'} ${Math.abs(adjQty)} ${selected.unit}`)
+      setModal(null)
+      
+      // Reload lại danh sách sản phẩm
+      await load()
+      
+    } catch (error) {
+      console.error('Lỗi không xác định:', error)
+      toast.error('Có lỗi xảy ra, vui lòng thử lại')
+    } finally {
+      setUpdatingStock(false)
+    }
   }
 
   function statusOf(p: Product) {
@@ -181,12 +275,14 @@ export default function InventoryClient() {
     if (r <= 1)   return { color: '#92400e', bg: '#fffbeb', border: '#fde68a', barColor: '#f59e0b', label: 'Sắp hết',  sqColor: '#f59e0b' }
     return               { color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0', barColor: '#22c55e', label: 'Đủ hàng',  sqColor: '#22c55e' }
   }
+  
   function numColor(p: Product) {
     const r = ratio(p)
     if (r <= 0.3) return '#dc2626'
     if (r <= 1)   return '#d97706'
     return '#16a34a'
   }
+  
   function barPct(p: Product) { return Math.min(100, (p.stock / Math.max(p.min_stock * 2, 1)) * 100) }
 
   const CATS = ['Thực phẩm', 'Đồ uống', 'Bánh kẹo', 'Gia vị', 'Hóa phẩm', 'Văn phòng phẩm', 'Khác']
@@ -202,7 +298,7 @@ export default function InventoryClient() {
     btnGhost: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: "'Be Vietnam Pro', sans-serif", whiteSpace: 'nowrap' },
   }
 
-  // ── Component upload ảnh dùng trong form ──
+  // Component upload ảnh
   const ImageUploader = () => (
     <div style={{ gridColumn: '1/-1' }}>
       <label style={V.label}>Ảnh sản phẩm</label>
@@ -254,6 +350,19 @@ export default function InventoryClient() {
     </div>
   )
 
+  // Kiểm tra đăng nhập
+  if (!currentUser) {
+    return (
+      <div style={V.page}>
+        <div style={{ textAlign: 'center', padding: 48 }}>
+          <Package size={48} style={{ margin: '0 auto 16px', opacity: 0.3 }} />
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Vui lòng đăng nhập</h2>
+          <p style={{ color: '#64748b' }}>Bạn cần đăng nhập để quản lý kho hàng</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={V.page}>
       <style>{`
@@ -304,8 +413,7 @@ export default function InventoryClient() {
       `}</style>
 
       <div className="inv-wrap">
-
-        {/* ── TOPBAR ── */}
+        {/* TOPBAR */}
         <div className="inv-topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, background: 'linear-gradient(135deg,#6366f1,#4338ca)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 12px rgba(99,102,241,.35)' }}>
@@ -319,8 +427,7 @@ export default function InventoryClient() {
           <div className="inv-topbar-btns">
             <button onClick={load} disabled={loading} style={V.btnGhost}>
               <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              <span style={{ display: 'none' } as React.CSSProperties} className="inv-btn-label">Làm mới</span>
-              <style>{`.inv-btn-label { display: inline !important; }`}</style>
+              Làm mới
             </button>
             <button onClick={openAdd} style={V.btnPri}>
               <Plus size={15} />Thêm SP
@@ -328,7 +435,7 @@ export default function InventoryClient() {
           </div>
         </div>
 
-        {/* ── 4 KPI CARDS ── */}
+        {/* 4 KPI CARDS */}
         <div className="inv-kpi-grid">
           {[
             { icon: '📦', label: 'Tổng sản phẩm', value: products.length, unit: 'mặt hàng', desc: 'Đang hoạt động',     bg: '#eff6ff', border: '#bfdbfe', num: '#1d4ed8', sub: '#93c5fd' },
@@ -348,7 +455,7 @@ export default function InventoryClient() {
           ))}
         </div>
 
-        {/* ── SEARCH + FILTERS ── */}
+        {/* SEARCH + FILTERS */}
         <div className="inv-filter-row">
           <div style={{ position: 'relative', flex: '2 1 220px', minWidth: 180 }}>
             <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none' }} />
@@ -376,7 +483,7 @@ export default function InventoryClient() {
           )}
         </div>
 
-        {/* ── MOBILE: Card list ── */}
+        {/* MOBILE: Card list */}
         <div className="inv-card-list">
           {loading ? (
             [...Array(4)].map((_, i) => <div key={i} style={{ ...V.card, padding: 16, height: 100, background: '#f8fafc' }} />)
@@ -392,7 +499,6 @@ export default function InventoryClient() {
             return (
               <div key={p.id} style={{ ...V.card, padding: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-                  {/* Ảnh sản phẩm */}
                   {imgUrl && (
                     <div style={{ width: 52, height: 52, borderRadius: 10, overflow: 'hidden', flexShrink: 0, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
                       <img src={imgUrl} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -455,7 +561,7 @@ export default function InventoryClient() {
           )}
         </div>
 
-        {/* ── DESKTOP: Table ── */}
+        {/* DESKTOP: Table */}
         <div className="inv-table-wrap" style={{ ...V.card, overflow: 'hidden', marginBottom: 16 }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -497,7 +603,6 @@ export default function InventoryClient() {
                   const imgUrl = (p as any).image_url
                   return (
                     <tr key={p.id} className="inv-tr" style={{ borderBottom: idx < filtered.length - 1 ? '1px solid #f8fafc' : 'none' }}>
-                      {/* Cột ảnh */}
                       <td style={V.td}>
                         <div style={{ width: 44, height: 44, borderRadius: 10, overflow: 'hidden', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           {imgUrl
@@ -571,13 +676,13 @@ export default function InventoryClient() {
           </div>
         </div>
 
-        {/* ── INSIGHT BAR ── */}
+        {/* INSIGHT BAR */}
         <div style={{ padding: '12px 16px', borderRadius: 12, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 14, color: '#15803d', display: 'flex', alignItems: 'flex-start', gap: 8, lineHeight: 1.6 }}>
           💡 <span><strong>Mẹo:</strong> Thanh màu dưới số tồn biểu thị tỷ lệ so với ngưỡng tối thiểu × 2. Ô đỏ = nhập ngay hôm nay, vàng = lên kế hoạch trong tuần.</span>
         </div>
       </div>
 
-      {/* ════════ MODAL ADD / EDIT ════════ */}
+      {/* MODAL ADD / EDIT */}
       {(modal === 'add' || modal === 'edit') && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16, backdropFilter: 'blur(6px)', animation: 'fadeIn .15s ease', overflowY: 'auto' }}>
           <div className="inv-modal-inner" style={{ background: '#fff', borderRadius: 20, boxShadow: '0 32px 80px rgba(0,0,0,.18)', width: '100%', maxWidth: 540, animation: 'slideUp .22s cubic-bezier(.34,1.4,.64,1)', margin: 'auto' }}>
@@ -594,9 +699,7 @@ export default function InventoryClient() {
             </div>
 
             <div className="inv-form-grid">
-              {/* ── UPLOAD ẢNH ── */}
               <ImageUploader />
-
               <div style={{ gridColumn: '1/-1' }}>
                 <label style={V.label}>Tên sản phẩm *</label>
                 <input className="inv-input" style={V.input} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="VD: Bút bi Thiên Long" />
@@ -658,7 +761,7 @@ export default function InventoryClient() {
         </div>
       )}
 
-      {/* ════════ MODAL ADJUST ════════ */}
+      {/* MODAL ADJUST */}
       {modal === 'adjust' && selected && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16, backdropFilter: 'blur(6px)', animation: 'fadeIn .15s ease', overflowY: 'auto' }}>
           <div className="inv-modal-inner" style={{ background: '#fff', borderRadius: 20, boxShadow: '0 32px 80px rgba(0,0,0,.18)', width: '100%', maxWidth: 420, animation: 'slideUp .22s cubic-bezier(.34,1.4,.64,1)', margin: 'auto' }}>
@@ -705,13 +808,15 @@ export default function InventoryClient() {
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
               <button onClick={() => setModal(null)} style={V.btnGhost}>Huỷ bỏ</button>
-              <button onClick={saveAdjust} style={V.btnPri}><PackagePlus size={14} />Xác nhận</button>
+              <button onClick={saveAdjust} disabled={updatingStock} style={{ ...V.btnPri, opacity: updatingStock ? 0.7 : 1 }}>
+                {updatingStock ? <><RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />Đang xử lý...</> : <><PackagePlus size={14} />Xác nhận</>}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ════════ MODAL IN MÃ VẠCH ════════ */}
+      {/* MODAL IN MÃ VẠCH */}
       {barcodeModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16, backdropFilter: 'blur(6px)', animation: 'fadeIn .15s ease' }}>
           <div style={{ background: '#fff', borderRadius: 20, boxShadow: '0 32px 80px rgba(0,0,0,.18)', width: '100%', maxWidth: 360, padding: 28, animation: 'slideUp .22s cubic-bezier(.34,1.4,.64,1)' }}>
