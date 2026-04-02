@@ -1,9 +1,6 @@
 import { PredictionResult, AlertChannel } from '@/types'
 import { createServerClient } from './supabase'
 
-// ============================================
-// Gửi cảnh báo qua Telegram Bot
-// ============================================
 export async function sendTelegramAlert(
   predictions: PredictionResult[]
 ): Promise<boolean> {
@@ -64,9 +61,6 @@ export async function sendTelegramAlert(
   }
 }
 
-// ============================================
-// Gửi cảnh báo qua Zalo OA
-// ============================================
 export async function sendZaloAlert(
   predictions: PredictionResult[]
 ): Promise<boolean> {
@@ -110,9 +104,6 @@ export async function sendZaloAlert(
   }
 }
 
-// ============================================
-// Gửi cảnh báo và lưu lịch sử
-// ============================================
 export async function sendAlerts(
   predictions: PredictionResult[],
   channel: AlertChannel = 'both'
@@ -132,17 +123,24 @@ export async function sendAlerts(
     zaloOk = await sendZaloAlert(alertItems)
   }
 
-  // Lưu lịch sử cảnh báo vào DB
   const supabase = createServerClient()
+
+  // Lấy user đang đăng nhập
+  const { data: { user } } = await supabase.auth.getUser()
+
   const records = alertItems.map(p => ({
     product_id: p.product_id,
     alert_type: p.status as 'warning' | 'critical',
     channel,
     message: `${p.product_name} còn ${p.predicted_days_left} ngày tồn kho`,
     days_left: p.predicted_days_left,
+    sent_at: new Date().toISOString(),
+    user_id: user?.id ?? null,
   }))
 
-  await supabase.from('alert_history').insert(records)
+  const { error } = await supabase.from('alert_history').insert(records)
+  if (error) console.error('❌ Insert alert_history error:', error)
+  else console.log(`✅ Đã lưu ${records.length} bản ghi lịch sử`)
 
   return { telegram: telegramOk, zalo: zaloOk }
 }

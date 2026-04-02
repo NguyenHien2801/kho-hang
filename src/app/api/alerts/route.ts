@@ -4,15 +4,24 @@ import { computePrediction } from '@/lib/prediction'
 import { sendAlerts } from '@/lib/alerts'
 import { AlertChannel } from '@/types'
 
-// POST /api/alerts { channel: 'both' | 'telegram' | 'zalo' }
 export async function POST(req: NextRequest) {
   const supabase = createServerClient()
-  const { channel = 'both' } = await req.json() as { channel?: AlertChannel }
+  const { channel = 'both', product_id } = await req.json() as { 
+    channel?: AlertChannel
+    product_id?: string 
+  }
 
-  // Load products + compute predictions
-  const { data: prods } = await supabase
-    .from('products').select('*').eq('is_active', true)
-  if (!prods) return NextResponse.json({ error: 'No products' }, { status: 500 })
+  let query = supabase.from('products').select('*').eq('is_active', true)
+  
+  // Nếu có product_id thì chỉ lấy 1 sản phẩm đó
+  const { data: prods, error: prodError } = product_id
+    ? await supabase.from('products').select('*').eq('id', product_id)
+    : await query
+
+  if (prodError) console.error('❌ Lỗi load products:', prodError)
+  if (!prods || prods.length === 0) {
+    return NextResponse.json({ error: 'No products' }, { status: 500 })
+  }
 
   const predictions = await Promise.all(
     prods.map(async p => {
@@ -26,6 +35,8 @@ export async function POST(req: NextRequest) {
   const alertItems = predictions.filter(
     p => p.status === 'warning' || p.status === 'critical'
   )
+
+  console.log(`📦 Tổng: ${predictions.length} | Cần cảnh báo: ${alertItems.length}`)
 
   if (alertItems.length === 0) {
     return NextResponse.json({ sent: 0, message: 'Không có sản phẩm cần cảnh báo' })
@@ -44,14 +55,15 @@ export async function POST(req: NextRequest) {
   })
 }
 
-// GET /api/alerts - lịch sử
 export async function GET() {
   const supabase = createServerClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('alert_history')
     .select('*, products(name)')
     .order('sent_at', { ascending: false })
     .limit(50)
+
+  if (error) console.error('❌ Lỗi load alert_history:', error)
 
   return NextResponse.json({ history: data || [] })
 }
